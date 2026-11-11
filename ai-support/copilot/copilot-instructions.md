@@ -179,6 +179,8 @@ The editor executable on this machine: `{TYRAX_EXE}`
   build, run and perform it again. **Replay exit 0 = reproduced exactly, 3 =
   diverged, 1 = could not run** - a regression test for a play session. Needs
   the *Input recorder* preference (OFF by default). See docs/input-replay.md.
+- `--dump-vuframe <projectDir> [--capture] [-o out.png]` - the geometry of one whole frame the running
+  debug game sent to VU1: runs, triangles and off-screen counts per flush, plus a wireframe PNG.
 - `--capture-frame <projectDir> [-o out.png] [--alpha a.png] [--timeout s]` -
   the running debug game photographs its own frame buffer (Live Debugger on;
   works over ps2link too); default `screenshots/frame-cli.png`.

@@ -5865,7 +5865,7 @@ void TerrainGame::loop() {
   // The renderer's two 0.5 ms frame sleeps only while the editor's Live
   // Debugger is attached (RendererCore::setFrameYield): -1.05 ms a frame
   // everywhere else, measured on a PS2.
-  engine->renderer.core.setFrameYield(livedbg::attached());
+  engine->renderer.core.setFrameYield(livedbg::needsFrameYield());
   const bool dbgHalted = livedbg::halted();
   const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
@@ -8240,7 +8240,7 @@ void TerrainGame::loop() {
   // The renderer's two 0.5 ms frame sleeps only while the editor's Live
   // Debugger is attached (RendererCore::setFrameYield): -1.05 ms a frame
   // everywhere else, measured on a PS2.
-  engine->renderer.core.setFrameYield(livedbg::attached());
+  engine->renderer.core.setFrameYield(livedbg::needsFrameYield());
   const bool dbgHalted = livedbg::halted();
   const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
@@ -27559,8 +27559,17 @@ void TerrainGame::renderScene() {
   std::vector<CostRow> costRows;
   if (costSeq) { costRows.reserve(runtimeObjects.size()+20); engine->renderer.core.sync.align3D(); }
   auto costStart = [&]() -> u32 { return (costSeq || (Tyra::HardwareTrace::active && Tyra::HardwareTrace::detailed)) ? profTicks() : 0; };
+  // The whole-frame geometry capture (docs/devkit.md) names every VU1 chain
+  // after the stage that sent it: for that one frame each stage closes its
+  // batch and drains at its end, exactly as the cost capture does, and marks
+  // the boundary.
+  const bool vuTag = livedbg::vuFrameTagging();
   auto costEnd = [&](const char* label, int object, u32 start) {
     if (Tyra::HardwareTrace::active && Tyra::HardwareTrace::detailed) Tyra::HardwareTrace::record(label, start, profTicks(), object + 1);
+    if (vuTag) {
+      engine->renderer.core.sync.align3D();
+      livedbg::vuFrameMark(label, object);
+    }
     if (!costSeq) return;
     engine->renderer.core.sync.align3D();
     if (costRows.size() < 4088) costRows.push_back({object,label,profTicks()-start});
@@ -28156,6 +28165,10 @@ void TerrainGame::renderScene() {
   heavyActive = interleaveBegin(costSeq != 0);
   heavyCollect = heavyActive;
   heavyBlendAt = -1;
+  // No submission batch around these two when they are drawn here: tried
+  // on a PS2 (2026-11-11, vehicle-playground) - it halved the frame's
+  // flushes, 84 -> 40, and the frame's work did not move
+  // (docs/devkit.md, "What a flush costs").
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
   // Roads are generated once at scene load, but their ready bags still incur
   // per-frame culling and submission. Price that work separately: otherwise a
@@ -28709,7 +28722,7 @@ void TerrainGame::renderScene() {
         renderEnvPass(i, objectGeometry[i], part);
         if (lp) lpCompanion += profTicks() - lpB;
       }
-    if (costSeq) stapip.core.endSubmissionBatch();
+    if (costSeq || vuTag) stapip.core.endSubmissionBatch();
     costEnd("Object",i,costObjectStart);
     // 3600: the Obj_* detail gives way first, so a big scene keeps its
     // Object rows and every phase after them under the 4088-row cap.
@@ -28741,7 +28754,7 @@ void TerrainGame::renderScene() {
       costRows.push_back({i,"Obj_render_total",t.attrib.renderTicks});
 #endif
     }
-    if (costSeq) stapip.core.beginSubmissionBatch();
+    if (costSeq || vuTag) stapip.core.beginSubmissionBatch();
     if (lp) lpT = profTicks();
     // Back to zero the moment this object's bags are out. The numbers are
     // RENDERER STATE, not a property of the bag, so everything drawn after an
@@ -28969,14 +28982,20 @@ void TerrainGame::renderScene() {
     }
     stapip.core.setTelemetryEnabled(costOldTelemetry);
     // Finish footer last; the host rejects partial transfers and old sequences.
-    FILE* f=fopen(FileUtils::fromCwd("rendercost.txt").c_str(),"wb");
-    if (f) {
-      fprintf(f,"TXRP 1 %u %d %u %.3f\n",costSeq,currentScene,(unsigned)costRows.size(),totalMs);
-      for (const CostRow& r:costRows)
-        fprintf(f,"%d %s %.3f\n",r.object,r.label,r.ticks/294912.0F);
-      fprintf(f,"END %u\n",costSeq);
-      fclose(f);
+    // One buffer, handed to the devkit's file channel: devlink on a console,
+    // a host: write elsewhere (docs/devlink.md).
+    std::string report;
+    report.reserve(64 + costRows.size()*48);
+    char line[160];
+    snprintf(line,sizeof(line),"TXRP 1 %u %d %u %.3f\n",costSeq,currentScene,(unsigned)costRows.size(),totalMs);
+    report += line;
+    for (const CostRow& r:costRows) {
+      snprintf(line,sizeof(line),"%d %s %.3f\n",r.object,r.label,r.ticks/294912.0F);
+      report += line;
     }
+    snprintf(line,sizeof(line),"END %u\n",costSeq);
+    report += line;
+    livedbg::writeDevFile("rendercost.txt",report.data(),(int)report.size());
   }
 
 }

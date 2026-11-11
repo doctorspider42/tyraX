@@ -29,6 +29,7 @@
 #include <kernel.h>  // FlushCache - the readback lands behind the data cache
 
 #include "debug/crash_handler.hpp"  // EE exception -> crash report
+#include "debug/devlink.hpp"  // the channel through the IOP (docs/devlink.md)
 #include "debug/hardware_trace.hpp"  // opt-in physical-console timeline scopes
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
 #include "scripts/script.hpp"
@@ -233,10 +234,18 @@ void pollCommand() {
   Tyra::HardwareTrace::Scope trace("Live_debug_poll");
   static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 +
                         MAX_WATCH * 2 + MAX_FACT_SET * 16 + 4];
-  FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
-  if (!f) return;  // no editor attached (or a shipped build)
-  const size_t got = fread(c, 1, sizeof(c), f);
-  fclose(f);
+  size_t got = 0;
+  if (Tyra::DevLink::active()) {
+    // Through the IOP (docs/devlink.md): the editor's datagram already sits
+    // in EE RAM - no host: round trip, which is why this can poll as often
+    // as PCSX2 does.
+    got = (size_t)Tyra::DevLink::readCommand(c, (int)sizeof(c));
+  } else {
+    FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
+    if (!f) return;  // no editor attached (or a shipped build)
+    got = fread(c, 1, sizeof(c), f);
+    fclose(f);
+  }
   if (got < (size_t)CMD_HEADER + 4) return;
 
   unsigned int magic, version, seq, flags;
@@ -267,6 +276,30 @@ void pollCommand() {
 
   editorAttached = true;
   cmdSeq = seq;
+  // TESTS of the crash paths, asked for by a NEGATIVE step count - a value no
+  // editor command carries (every flag bit is taken: render cost is bit 7).
+  // No editor UI sends them; a test script does (docs/devlink.md, phase 5,
+  // and docs/ps2link-setup.md, "The reset wedge"). WARN, not LOG: a plain LOG
+  // would wait in devlink's buffer for a flush that never comes.
+  //   -7  stop the EE dead, interrupts off, while the IOP lives on;
+  //   -8  a real EE exception (a store to an odd address).
+  if (steps == -7) {
+    TYRA_WARN("livedbg: hanging the EE on request (test)");
+    DI();
+    for (;;) {
+    }
+  }
+  if (steps == -8) {
+    // A store through a null object's field: on a console a TLB refill on
+    // store (excCode 3, badvaddr 4), the commonest real crash. The vector it
+    // goes to is logged because the crash report depends on it being the
+    // game's (docs/devkit.md, "A null pointer is reported too").
+    printf("==WARN: livedbg: raising an EE exception on request (test), "
+           "TLB store vector %p\n", GetExceptionHandler(3));
+    fflush(stdout);
+    *reinterpret_cast<volatile int*>(4) = 0;
+  }
+  if (steps < 0) steps = 0;
   int watchc;
   memcpy(&watchc, c + 28, 4);
   if (watchc < 0 || watchc > MAX_WATCH) watchc = 0;
@@ -484,6 +517,19 @@ void flush(ScriptContext& ctx) {
   put32(p, outSeq ^ FOOTER_XOR);
   p += 4;
 
+  // Through the IOP once the editor has attached (docs/devlink.md): one SIF
+  // DMA, the IOP sends it on. A busy pair of IOP slots skips this report - the
+  // next one supersedes it, and falling back to the file would put the very
+  // round trip back that devlink exists to remove. The boot snapshot (before
+  // any command arrived) still goes to the file: the Runner reads it as the
+  // game-is-up marker, and nobody is listening for datagrams yet.
+  const int snapLen = (int)(p - snapBuf);
+  if (Tyra::DevLink::active() && editorAttached &&
+      snapLen <= Tyra::DevLink::kReportMax) {
+    Tyra::DevLink::sendReport(snapBuf, snapLen);
+    return;
+  }
+
   FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.bin").c_str(), "wb");
   if (!f) return;
   fwrite(snapBuf, 1, (size_t)(p - snapBuf), f);
@@ -493,6 +539,9 @@ void flush(ScriptContext& ctx) {
 void tickImpl(ScriptContext& ctx) {
   Tyra::HardwareTrace::Scope trace("Live_debug");
   lastScene = ctx.scene;
+  // devlink's per-frame work - logs, heartbeat, queued segments - if it is up
+  // (docs/devlink.md). A no-op everywhere else.
+  Tyra::DevLink::pump();
   // The editor's manual fact overrides, re-asserted at the top of the frame so
   // the graphs and rules that run after this SEE them. Re-applied every frame
   // the command file still lists them, which is what makes overriding a fact a
@@ -551,9 +600,12 @@ void tickImpl(ScriptContext& ctx) {
   }
   forcedCount = 0;  // force-fires live for exactly one frame
 
-  // Over ps2link every fopen is a network round-trip, so poll sparsely there.
+  // Over ps2link every fopen is a network round-trip, so poll sparsely there -
+  // unless devlink carries the channel, which makes a poll a memory read and
+  // a report one DMA, so the PCSX2 cadence applies (docs/devlink.md).
   // While the game is stopped the editor is waiting on us: poll fast.
-  const bool ps2link = Tyra::IrxLoader::keepIopResident;
+  const bool ps2link =
+      Tyra::IrxLoader::keepIopResident && !Tyra::DevLink::start();
   if (haltRequested && pollCooldown > 2) pollCooldown = 2;
   if (--pollCooldown <= 0) {
     pollCooldown = haltRequested ? 2 : (ps2link ? 25 : 6);

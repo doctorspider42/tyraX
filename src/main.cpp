@@ -2137,7 +2137,8 @@ static int symbolizeFromCli(int argc, char** argv) {
 // to get the staleness watchdog wrong. Returns 0, or 1 when a STEP write was
 // lost (see the push lambda for why a lost refresh is not one).
 static int drivePadScript(const std::string& path,
-                          const std::vector<livepad::Step>& steps) {
+                          const std::vector<livepad::Step>& steps,
+                          const std::string& consoleIp = "") {
     // Seed the sequence from the clock: a second driver run must never reuse a
     // number the still-running game already saw, or its first state reads as
     // "nothing changed" and the staleness watchdog starts counting.
@@ -2153,7 +2154,7 @@ static int drivePadScript(const std::string& path,
     // run for; treating the second as fatal is what let a lost race on Windows
     // (see livepad::write) kill about one 9 s hold in five.
     auto push = [&](const livepad::State& s, bool attached, bool isStep) {
-        const std::string e = livepad::write(path, s, ++seq, attached);
+        const std::string e = livepad::write(path, s, ++seq, attached, consoleIp);
         if (e.empty()) return true;
         if (!isStep) {
             if (++lostRefreshes <= 3)
@@ -2295,8 +2296,19 @@ static int padFromCli(int argc, char** argv) {
                      "project - the game was built without the channel and "
                      "will ignore this.\n");
 
+    // A game on a console reads its pad through devlink (docs/devlink.md), not
+    // the file, so the script also goes to the console the editor deploys to
+    // (editor.ini's ps2LinkIp). In PCSX2 the datagram simply lands nowhere.
+    std::string consoleIp;
+    if (const std::filesystem::path base = platform::configDir(); !base.empty()) {
+        std::ifstream ini(base / "editor.ini");
+        std::string line;
+        while (std::getline(ini, line))
+            if (line.rfind("ps2LinkIp=", 0) == 0) consoleIp = line.substr(10);
+    }
     return drivePadScript(
-        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string(), steps);
+        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string(), steps,
+        consoleIp);
 }
 
 // --- The input recorder's headless half (docs/input-replay.md) --------------
@@ -2906,6 +2918,7 @@ static int captureFrameFromCli(int argc, char** argv) {
     const auto t0 = std::chrono::steady_clock::now();
     size_t lastSize = 0;
     int stalled = 0;
+    double askedAt = 0.0;
     std::vector<unsigned char> bytes;
     for (;;) {
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
@@ -2925,6 +2938,15 @@ static int captureFrameFromCli(int argc, char** argv) {
                 f.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)want);
                 if (f.gcount() == (std::streamsize)want) break;
             }
+        }
+        // Over devlink the picture is ~900 datagrams nothing retransmits, and
+        // the file only appears whole: 8 s of nothing means one was lost (or
+        // the command was), so ask again - a new seq, a fresh frame.
+        if (size == 0 && el - askedAt > 8.0) {
+            askedAt = el;
+            ++c.seq;
+            (void)livedbg::writeCommand((dir / "bin" / "livedbg.cmd").string(), c);
+            std::fprintf(stderr, "capture-frame: nothing after 8 s - asking again\n");
         }
         if (size == lastSize) {
             if (++stalled > 15 && size > 0) {
@@ -2986,6 +3008,131 @@ static int captureFrameFromCli(int argc, char** argv) {
 //
 // Decodes bin/vucap.bin - the VU1 DMA chain the game handed over - so the
 // packet inspector can be checked without the GUI. See docs/devkit.md.
+// Headless helper:
+//   tyrax-editor.exe --dump-vuframe <projectDir> [-o out.png] [--flip-y] [--capture]
+//
+// Decodes bin/vuframe.bin - every VU1 chain of one frame (docs/devkit.md, "A
+// frame's geometry") - prints what the frame sent, flush by flush, and writes
+// its wireframe as a PNG. --capture asks the running game for a fresh one first
+// (the same command the Debugger's button writes) and waits for it.
+static int dumpVuFrameFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --dump-vuframe <projectDir> [-o out.png] [--flip-y] [--capture]\n");
+        return 2;
+    }
+    const fs::path dir(argv[2]);
+    std::string out;
+    bool flip = false, capture = false, full = false;
+    for (int i = 3; i < argc; ++i) {
+        if (std::strcmp(argv[i], "-o") == 0 && i + 1 < argc) out = argv[++i];
+        else if (std::strcmp(argv[i], "--flip-y") == 0) flip = true;
+        else if (std::strcmp(argv[i], "--full") == 0) full = true;
+        else if (std::strcmp(argv[i], "--capture") == 0) capture = true;
+    }
+    const fs::path file = dir / "bin" / "vuframe.bin";
+    if (capture) {
+        std::error_code ec;
+        fs::remove(file, ec);
+        livedbg::Command c;
+        c.seq = (uint32_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+        if (!c.seq) c.seq = 1;
+        c.captureVuFrame = true;
+        const std::string err = livedbg::writeCommand((dir / "bin" / "livedbg.cmd").string(), c);
+        if (!err.empty()) {
+            std::fprintf(stderr, "dump-vuframe: %s\n", err.c_str());
+            return 1;
+        }
+        const auto t0 = std::chrono::steady_clock::now();
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            vucap::Frame probe;
+            if (vucap::loadFrame(file.string(), probe)) break;
+            if (std::chrono::steady_clock::now() - t0 > std::chrono::seconds(30)) {
+                std::fprintf(stderr, "dump-vuframe: no bin/vuframe.bin after 30 s - is a debug game with "
+                                     "Live Debugger running?\n");
+                return 1;
+            }
+        }
+    }
+    vucap::Frame f;
+    if (!vucap::loadFrame(file.string(), f, flip)) {
+        std::fprintf(stderr, "dump-vuframe: %s\n", f.error.c_str());
+        return 1;
+    }
+    // Names for the objects: the project, when it loads.
+    Project proj;
+    const bool haveProj = project::load(proj, dir.string()).empty();
+    auto who = [&](const vucap::FrameFlush& fl) {
+        std::string w = fl.stage.empty() ? std::string("?") : fl.stage;
+        if (fl.object >= 0) {
+            w = "#" + std::to_string(fl.object);
+            if (haveProj && f.scene >= 0 && f.scene < (int)proj.scenes.size() &&
+                fl.object < (int)proj.scenes[f.scene].objects.size())
+                w += " " + proj.scenes[f.scene].objects[fl.object].name;
+        }
+        return w;
+    };
+    std::printf("frame %u, %d flush(es), %d draws, %d triangles sent (%d behind the eye, %d off screen), %dx%d, "
+                "%zu KB (%zu KB of blocks)%s\n",
+                f.frame, (int)f.flushes.size(), (int)f.draws.size(), f.tris, f.behind, f.offscreen, f.renderWidth,
+                f.renderHeight, f.bytes / 1024, f.poolBytes / 1024, f.truncated ? " - TRUNCATED" : "");
+    if (f.tagged)
+        std::printf("an ordinary frame sends %d flush(es); this capture split them at every stage to name them\n"
+                    "main view: %d triangles, %d off screen (%d%%), %d behind the eye\n",
+                    f.naturalFlushes, f.mainTris, f.mainOffscreen,
+                    f.mainTris ? f.mainOffscreen * 100 / f.mainTris : 0, f.mainBehind);
+    // By stage / object, heaviest first.
+    struct Sum {
+        std::string who;
+        bool mainView = true;
+        int flushes = 0, bags = 0, runs = 0, tris = 0, off = 0, behind = 0;
+    };
+    std::vector<Sum> sums;
+    for (const vucap::FrameFlush& fl : f.flushes) {
+        const std::string w = who(fl);
+        Sum* s = nullptr;
+        for (Sum& x : sums)
+            if (x.who == w) s = &x;
+        if (!s) {
+            sums.push_back({});
+            s = &sums.back();
+            s->who = w;
+            s->mainView = fl.mainView;
+        }
+        ++s->flushes;
+        s->bags += fl.bags;
+        s->runs += fl.runs;
+        s->tris += fl.tris;
+        s->off += fl.offscreen;
+        s->behind += fl.behind;
+    }
+    std::stable_sort(sums.begin(), sums.end(), [](const Sum& a, const Sum& b) { return a.tris > b.tris; });
+    std::printf("%-38s %7s %5s %5s %7s %7s %7s\n", "who", "flushes", "bags", "runs", "tris", "off", "behind");
+    for (const Sum& s : sums)
+        std::printf("%-38.38s %7d %5d %5d %7d %7d %7d%s\n", s.who.c_str(), s.flushes, s.bags, s.runs, s.tris, s.off,
+                    s.behind,
+                    s.mainView ? "" : "  (not the main view)");
+    if (full)
+        for (size_t i = 0; i < f.flushes.size(); ++i) {
+            const vucap::FrameFlush& fl = f.flushes[i];
+            std::printf("  flush %3zu: %-30.30s %4d qw, %d bag(s), %3d runs, %5d triangles, %4d behind, %4d off screen\n",
+                        i, who(fl).c_str(), fl.qw, fl.bags, fl.runs, fl.tris, fl.behind, fl.offscreen);
+        }
+    if (!out.empty()) {
+        std::vector<unsigned char> rgba;
+        int w = 0, h = 0;
+        vucap::rasterFrame(f, rgba, w, h);
+        if (!stbi_write_png(out.c_str(), w, h, 4, rgba.data(), w * 4)) {
+            std::fprintf(stderr, "dump-vuframe: could not write %s\n", out.c_str());
+            return 1;
+        }
+        std::printf("wireframe -> %s\n", out.c_str());
+    }
+    return 0;
+}
+
 static int dumpVuCapFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
@@ -4954,6 +5101,8 @@ int main(int argc, char** argv) {
         return debugStateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
         return dumpVuCapFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--dump-vuframe") == 0)
+        return dumpVuFrameFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--profile-frame") == 0)
         return renderCostFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--capture-frame") == 0)
@@ -5049,6 +5198,8 @@ int main(int argc, char** argv) {
             "game's own screenshot (works over ps2link)\n"
             "  --dump-vucap <dir> [--full] [--peek N]  decode the last VU1 "
             "capture\n"
+            "  --dump-vuframe <dir> [--capture] [-o out.png]  the geometry of "
+            "one whole frame (docs/devkit.md)\n"
             "  --pad <projectDir> \"<script>\"           drive the running "
             "game's controller (docs/remote-pad.md)\n"
             "  --record <projectDir> <out.tyrarep>     record a run's input "

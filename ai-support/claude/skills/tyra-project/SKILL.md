@@ -93,7 +93,7 @@ tyrax-editor binary lives.)
 | `--bake-object-light <projectDir> <object> [size] [rays]` | Bake one object's static light into its texture and mark it pre-lit |
 | `--bake-model-ao <projectDir> [--texbake]` | Bake every eligible `.obj` model's own AO into `.res-baked/modelao/` and report skips (a build does this itself); `--texbake` also runs the texture multiply |
 | `--bake-particles <projectDir>` | Re-bake procedural particle textures into `res/materials/particles/`, re-sync emitters, save + regenerate |
-| `--pad`, `--record`, `--replay`, `--capture-frame`, `--profile-frame` | Drive and observe the RUNNING debug game - see tyra-building |
+| `--pad`, `--record`, `--replay`, `--capture-frame`, `--profile-frame`, `--dump-vuframe` | Drive and observe the RUNNING debug game - see tyra-building |
 | `--search-docs "<terms>" [page]` | Full-text search over the editor's built-in docs (the `docs/<page>.md` the guides cite; `page` = name without `.md`) |
 | `--add-ai-support <projectDir> [claude] [codex] [copilot]` | (Re)install these AI guides (files whose marker you deleted are kept) |
 

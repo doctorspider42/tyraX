@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <debug/devlink.hpp>
 
 #include "scripts/script.hpp"
 
@@ -255,17 +256,15 @@ void writeCapture(ScriptContext& ctx) {
   put32(buf + 44, 0);
   put32(buf + TM_HEADER + stateBytes, seqOut ^ TM_FOOTER_XOR);
 
-  FILE* f = fopen(Tyra::FileUtils::fromCwd("livetime.bin").c_str(), "wb");
-  if (!f) return;
-  fwrite(buf, 1, (size_t)(TM_HEADER + stateBytes + 4), f);
-  fclose(f);
+  // Queued to the IOP in slot-sized segments under ps2link with devlink up,
+  // a host: write elsewhere (docs/devlink.md).
+  Tyra::DevLink::writeFile("livetime.bin", buf, TM_HEADER + stateBytes + 4);
 }
 
 void pollRestore(ScriptContext& ctx) {
-  FILE* f = fopen(Tyra::FileUtils::fromCwd("livetime.rst").c_str(), "rb");
-  if (!f) return;  // nothing to go back to (the usual case)
-  const size_t got = fread(buf, 1, sizeof(buf), f);
-  fclose(f);
+  const int read = Tyra::DevLink::readFile("livetime.rst", buf, (int)sizeof(buf));
+  if (read < 0) return;  // nothing to go back to (the usual case)
+  const size_t got = (size_t)read;
   if (got < (size_t)TM_HEADER + 4) return;
   if (get32(buf + 0) != TM_MAGIC || get32(buf + 4) != TM_VERSION) return;
   const u32 seq = get32(buf + 8);
@@ -307,8 +306,12 @@ class TimeMachine : public Script {
       seqOut = 0;
     }
     ++frameNo;
-    // Over ps2link every fopen is a network round-trip; PCSX2's host
-    // filesystem is plain local IO, so capture ~10x/s there.
+    // A capture written through devlink leaves in segments, one per free IOP
+    // slot: keep them moving every frame (docs/devlink.md).
+    Tyra::DevLink::pump();
+    // Over ps2link a capture is big network traffic either way (a host: write,
+    // or devlink segments the IOP has to send), so the console keeps its
+    // sparser cadence; PCSX2's host filesystem is local IO - ~10x/s there.
     if (--cooldown > 0) return;
     cooldown = Tyra::IrxLoader::keepIopResident ? 25 : 6;
     pollRestore(ctx);

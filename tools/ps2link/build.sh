@@ -118,6 +118,9 @@ if [ ! -d "$work/.git" ]; then
 else
     echo "== Reusing existing clone (use --clean to reset) =="
     git -C "$work" checkout --quiet -- .
+    # Files the patch ADDS (r9's dev9pre/) survive a checkout as untracked
+    # files, and the `git apply` below then refuses to create them again.
+    git -C "$work" clean -fdq
 fi
 
 echo "== Applying tyrax.patch =="

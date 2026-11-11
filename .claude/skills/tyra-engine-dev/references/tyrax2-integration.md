@@ -803,9 +803,11 @@ Three properties to preserve if you touch it:
   `SetVCommonHandler` regardless of what you register, and its vector **always
   ERETs** — it never chains to the kernel handler it saved (that copy is only for
   `ee_dbg_remove`). So an unhandled hooked cause returns to the faulting
-  instruction with nothing serviced; fatal for a TLB refill, which is how a
-  mapped access is *completed*. The handler therefore hands causes 1..3 straight
-  back with `SetVTLBRefillHandler` after installing. Causes 0 (Interrupt), 8
+  instruction with nothing serviced. (The handler once handed causes 1..3
+  back, believing a TLB refill completes a mapped access; on a PS2 there is no
+  demand paging, a refill is a null pointer, and handing it back cost every
+  null-pointer crash its report. Since 2.15.0 it takes them - devkit-debugging.md.)
+  Causes 0 (Interrupt), 8
   (Syscall), 9, 14 and 15 are never routed by the install at all — which is why
   narrowing the registered list alone never fixed anything.
   (`ee_dbg_set_level2_handler` also bounds-checks `cause < 4`.)

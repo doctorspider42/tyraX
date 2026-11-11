@@ -35,7 +35,7 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    **No `IPCONFIG.DAT` and the console silently falls back to `192.168.1.10`**
    and vanishes from the LAN.
 3. **Boot it** from your launcher. The screen must read
-   `Welcome to TyraX ps2link r8 (no USB)` and end with a `Net config:` line
+   `Welcome to TyraX ps2link r9 (no USB)` and end with a `Net config:` line
    showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
 4. **Point the editor at it** — *Edit > Preferences > Running games
@@ -406,7 +406,7 @@ mismatches and fixed-dt sign reversal remain rejected measurement controls.
 3. Boot it. The screen must read:
 
    ```
-   Welcome to TyraX ps2link r8 (USB keyboard + mouse)
+   Welcome to TyraX ps2link r9 (USB keyboard + mouse)
    based on ps2link
    ...
    Net config: 192.168.1.42  255.255.255.0  192.168.1.1
@@ -1006,6 +1006,131 @@ Not fixed in r3, recorded so nobody re-discovers them:
   size on **both** sides (ps2link *and* `ps2client`), which is a protocol break;
   `TCP_NODELAY` (already on at both ends) was the cheap 50× win and it is spent.
   Reads are already single-round-trip and unchunked.
+
+### The reset wedge (`freepad: DMA Busy`) - what it is, and the open question
+
+After somewhere around 15–20 reset deploys since a power cycle (sooner with
+heavy debug builds), a deploy ends with the console spamming
+`freepad: DMA Busy ID = ... ret = 0` / `SB_STAT = 00f00160` and only a power
+cycle helps. What is known (2026-11-07):
+
+- **The message is a symptom, not the fault.** It comes from padman on the
+  IOP (`iop/system/padman/src/padInit.c`, `DmaSendEE`): every vblank padman
+  sends the pad state to the EE by SIF DMA, and when the previous transfer has
+  never completed it prints this every 240 frames. A SIF0 transfer completes
+  only when the EE's DMA channel takes it - so **the IOP is alive and the EE has
+  stopped receiving**: it died or hung. That is also why `reset` then returns 0
+  and changes nothing: the command reaches the IOP, and there is no EE to carry
+  it out.
+- **Reproduced on demand (2026-11-08):** a debug build's test command (step count -7) stops the
+  EE with interrupts off while everything else runs ([devlink.md](devlink.md),
+  phase 5); seconds later the console printed `freepad: DMA Busy ID = ...`.
+  So the message means exactly "the EE stopped taking SIF0" - nothing more
+  specific - and devlink's watchdog now says so in the editor's log.
+- **An EE exception is recoverable over Ethernet (2026-11-08).** The test
+  command with step count -8 raises a real EE exception (a store through a
+  wild pointer - on the console a TLB refill on store, excCode 3) in a debug
+  game. Twice on the physical PS2 - with ps2link's own
+  exception handler, and with the game's Tyra crash handler installed
+  (`eeCrashHandler`) - the plain F6 path (`reset`, then `execee`) brought the
+  game back with no power cycle. ps2link's handler parks only the faulting
+  thread (`SleepThread`) and its command thread keeps serving `reset`. So the
+  power cycle is for HARD hangs only - an EE looping with interrupts off, a
+  wedged bus - where no code of ours can run; devlink's watchdog now names
+  that case in the editor's log. (Side finding, fixed in 2.15.0: the Tyra
+  crash handler wrote no `bin/crash.txt` on that fault, because it handed the
+  TLB causes back to the kernel and so to ps2link's handler. It now takes them
+  - see docs/devkit.md, "A null pointer is reported too" - and the same test
+  writes the report and the TYRAX screen, still recoverable with F6.)
+- **Where the EE is lost is unknown.** `pkoReset` (the patch, `ee/cmdHandler.c`)
+  terminates the game's MAIN thread only, quiesces the hardware, and
+  `ExecPS2`s ps2link, whose `main()` reboots the IOP. Until that reboot the
+  dead game's IOP modules (padman, audsrv, devlink, ...) keep running and keep
+  DMAing into EE addresses that belonged to the game. The TV shows how far the
+  EE got: the last ps2link line on screen (`program stopped`, `handing over to
+  a fresh image...`, the banner) is the stage it died in.
+- **Ruled out so far: EE kernel object leaks.** Debug builds log `KHEAD free
+  semaphores N threads M` at boot under ps2link (`Tyra::DevLink::start`). On a
+  physical PS2 it read 208 / 249 on the 6th and on the 7th reset deploy since a
+  power cycle - nothing accumulates across a reset there.
+- **The reset COUNT alone does not wedge it.** Same evening, on the physical
+  PS2: 20 consecutive reset deploys (numbers 7 to 26 since the power cycle) of a
+  light FPP scratch project, debug build with devlink carrying Remote Pad and
+  the Live Debugger - **20 of 20 booted**, `KHEAD` 208/249 every time. The
+  wedges seen at ~15–20 deploys all followed heavier debug games. What those
+  have and this one does not: `host:` traffic at the moment of the reset (a
+  debug game over plain ps2link polls `host:` files every few frames, so a
+  reset can land while the game sits inside a SIF RPC), big scenes, music
+  streaming. Then the same loop with devlink **forced off** (the game polling
+  `livepad.bin` every 4th frame and `livedbg.cmd` every 25th over `host:`):
+  deploys 27–37 booted, **deploy 38 wedged** - `reset` was accepted, `execee`
+  never produced a `loadelf` line. One wedge in 31 resets, and it came in the
+  arm whose game was inside `host:` traffic when it was reset. That points at
+  a reset landing mid-RPC, but a single event does not prove it.
+- **What that wedge looked like (TV photo + network checks):** the screen
+  showed ps2link's **whole** restart - banner, `exception handlers installed`,
+  `IOP restarted, loading modules`, the net config, `Ready with 33554432 memory
+  bytes`. So the EE did NOT die in the reset path: ps2link came back cleanly.
+  But the console was **deaf on the network**: an `execee` without reset got no
+  answer in 40 s, ping timed out, and the PC had **no ARP entry** for it. The
+  IOP's network stack never came up after the reboot, while everything ps2link
+  can see from the EE side looked fine. Candidate: the DEV9/SMAP Ethernet block
+  keeps its state across an IOP reboot (as the SPU2 does - the r3 fix), and a
+  reset that lands mid-transfer (a game busy with `host:` TCP) leaves it where
+  the freshly loaded smap driver cannot bring the link up.
+- **Tried and reverted (r9, never shipped): `dev9Shutdown()` in the IOP's
+  reset handler**, right after the reset command went to the EE. Netbooted over
+  the card's r8: the reset of an idle ps2link came back, but the very next
+  reset - of a running game - produced exactly that wedge (clean "Ready" on
+  screen, no ARP, no ping). So powering the adapter down during a reset does
+  not cure the state, it *causes* it - which says the DEV9 state at the moment
+  of the IOP reboot really is what decides whether the network returns. The
+  next thing to try is the opposite direction: leave the card powered and make
+  the fresh boot's driver init survive whatever the old one left (a SMAP/EMAC
+  soft reset before `smap.irx` loads, or a full, slow DEV9 power sequence in
+  ps2link's `loadModules()`). Each attempt costs a power cycle.
+- **r9 (in the patch): diagnostics on the TV, and a stuck DEV9 DMA channel
+  stopped.** `dev9pre.irx` runs on the fresh IOP before `ps2dev9`, reads the
+  IOP DMA channel registers (DEV9 = channel 8, SIF0/SIF1, SIO2 in/out), stops
+  channel 8 if the dead game left it busy, and ps2link prints the result with
+  the network modules' return codes:
+  `ps2link: iop dma dev9-ok sif1-armed | dev9 0 smap 29/0 ip 0` is a healthy
+  boot (SIF1 is always armed on the IOP side - that is how it receives). Netbooted
+  over the card's r8 it survived **40 of 40** resets of the file-polling game
+  (r8 had wedged on the 12th), and the line after a reset of a running game
+  read `dev9-ok` - so in that reset the DEV9 channel was NOT stuck, and the
+  40/40 alone does not prove the fix (at ~1 wedge in 31, 40 clean runs happen
+  by chance about a quarter of the time). What r9 does guarantee is evidence:
+  **when a console on r9 comes back "Ready" but deaf, photograph that line** -
+  it says whether DEV9 DMA was stuck and which network module failed to start.
+- **First wedge caught on r9 (2026-11-08, card-flashed r9, after an
+  interrupted deploy and two resets in a row):** the TV read
+  `iop dma dev9-ok sif1-armed | dev9 0 smap 29/0 ip 0` above `Ready`, and the
+  console answered no ping. So in this face nothing was stuck at boot and every
+  network module started cleanly - the network dies AFTER `Ready`: the SMAP
+  link (PHY negotiation), the ps2ip stack, or an IOP thread that stops being
+  scheduled. The next diagnostic belongs there (e.g. ps2link printing the SMAP
+  link state a few seconds after `Ready`), not at module load.
+  This is a different face from the `freepad: DMA Busy` one above (IOP alive,
+  EE gone) - "the wedge" is at least two failures.
+- **The flashed card was r7 (no USB)** when this started; it was reflashed to
+  r8 and then, on 2026-11-08, to **r9** (low + packed + no USB, 104 260 bytes;
+  the unpacked image ends at `0x000DF060`, under the `0x000DF3A0` known to
+  boot from the FreeMcBoot menu). Every boot of the console now prints the
+  `iop dma` diagnostic line.
+- **The repro rig**: `tools/ps2rig/reset-cycle.ps1` deploys one project N times
+  the way F6 does and records `KHEAD` and wedges per cycle; point it at the
+  emulator rig (`tools/ps2rig/devlink-emu-rig.ps1`) so a wedge costs a
+  `Stop-Process`, not a power cycle. Mind the tty port: **one `ps2client` per PC
+  at a time**, rig or console - and **no game left running on the real
+  console** either: a running game keeps sending its tty to this PC with nobody
+  of its own listening, and the rig's `ps2client` then logs that game's lines
+  instead of the rig's (seen: a census probe's output in a rig loop's log).
+  **And the PC must be able to reach the rig at all**: bridged onto the PC's
+  only LAN adapter, the emulated console boots and shows its address, but the
+  PC cannot talk to a pcap-bridged guest on its own adapter (no ARP entry,
+  commands never arrive). It needs a second network adapter (or a TAP/loopback
+  setup) for the bridge - measured 2026-11-07 on a single-NIC desk.
 
 Keep the patch **LF-only** (`.gitattributes` enforces it) — it is applied to a
 Unix checkout inside a Linux container, and a CRLF patch fails `git apply`. To

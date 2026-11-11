@@ -189,6 +189,10 @@ vendor/tyra/*
 # plus the built module that gets overlaid onto the container's PS2SDK at build
 # time (LGPL v2 - see vendor/tyra/audsrv/README.md).
 !vendor/tyra/audsrv/
+# ...and devlink, the devkit's IOP module (TyraX original - docs/devlink.md):
+# sources, build scripts and the built module. Its .work/ is scratch.
+!vendor/tyra/devlink/
+vendor/tyra/devlink/.work/
 
 # ...but not its build work tree: a pinned ps2sdk clone the build script
 # overlays our sources onto. The sources and the built module are committed;

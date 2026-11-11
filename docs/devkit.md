@@ -71,6 +71,15 @@ worked. This is functional validation, not a measured performance improvement.
 
 ## What the devkit costs at runtime
 
+**Since 2.15.0 most of what follows is history on a console**: a debug game
+under ps2link moves its polled channels - Remote Pad, the Live Debugger, Live
+Link, Live Logic, texture hot reload, the time machine - and its log lines
+off `host:` and onto the IOP ([devlink.md](devlink.md)). Measured on a PS2
+with the debugger attached: 0.17 ms of `pre` against 1.67 ms over `host:`, and
+0 missed fields against 20 in 1250. What still costs round trips: the input
+recorder (a chunk every 256 frames), the boot snapshot and the crash report. The numbers below are
+the `host:` path, still what PCSX2-less tools and older games pay.
+
 The devkit is free in a RELEASE build - that is what the audit proves. In a
 debug build it is not, and over ps2link it is not small. Measured on a physical
 PS2 on `examples/vehicle-playground`, 2026-09-23, parked vantage, day:
@@ -216,41 +225,41 @@ PCSX2 does not reproduce every EE exception, so a crash handler must ultimately
 be checked on real hardware. Assertions and soft errors are testable in the
 emulator.
 
-### A null pointer gets you no crash report at all
+### A null pointer is reported too
 
-The report above covers the faults the handler hooks — address errors, bus
-errors, reserved instructions, coprocessor-unusable, overflow and traps. The
-**TLB causes are deliberately handed straight back to the kernel** (the reason
-is in `crash_handler.cpp`: a hooked TLB refill with nothing to service it spins
-in the vector forever), and a wild pointer into unmapped memory is exactly a TLB
-refill. So the single most ordinary C++ bug there is produces **no
-`bin/crash.txt`, no TYRAX banner and nothing on the TV** — just ps2link's own
-register dump in the console log:
-
-```text
-Cause:7000800C   BadAddr:00000004   Status:70030C13   EPC:0013B988
-```
-
-Read it rather than skipping past it, because it is a complete diagnosis:
-
-- `Cause`'s ExcCode is bits 6:2 — `(0x7000800C >> 2) & 0x1F` = **3**, TLB refill
-  on store. 2 is the same thing on a load. Either one means *this address is not
-  mapped*, and a small `BadAddr` means the pointer was null.
-- `BadAddr` is the **offset of the field** that was written. `0x00000004` is a
-  store four bytes into a null object — with `StaPipInfoBag`, whose `model`
-  pointer is at 0 and `shadingType` at 4, that names the member outright.
-- `EPC` is the faulting instruction, so `--symbolize` finishes the job:
+The handler hooks address errors, bus errors, reserved instructions,
+coprocessor-unusable, overflow, traps **and the TLB causes** (1–3). A PS2 has no
+demand paging — RAM, its uncached windows and the scratchpad are mapped by fixed
+entries at boot — so a TLB refill always means an access to nothing: a null or
+wild pointer, the most ordinary C++ bug there is. Before 2.15.0 those causes were
+handed back to the kernel, so exactly that bug produced no `bin/crash.txt` and
+no TYRAX banner, only ps2link's own register dump. Now the console log says
 
 ```text
-tyrax-editor --symbolize <projectDir> 0x0013B988
+====ERR: TYRAX EE CRASH: TLB refill on store (excCode 3) epc 0x0017981c badvaddr 0x00000004 ra 0x0017981c - writing bin/crash.txt
+====ERR: TYRAX EE CRASH: report written
 ```
 
-That printed `TerrainGame::setupLightPools() src/terrain_game.cpp:8435` and the
-line was a bag field assigned before its `make_unique` (fixed in 1.54.1).
+and the report follows. Read it like this:
+
+- ExcCode **3** is a TLB refill on store, **2** the same on a load. Either one
+  means *this address is not mapped*, and a small `badvaddr` means the pointer
+  was null.
+- `badvaddr` is the **offset of the field** that was touched: `0x00000004` is a
+  store four bytes into a null object, which usually names the member outright.
+- `epc` is the faulting instruction, so `--symbolize` finishes the job:
+
+```text
+tyrax-editor --symbolize <projectDir> 0x0017981c
+```
+
+If the report itself faults (stdio and the `host:` write go over SIF), the TV
+screen adds an **"AND A SECOND FAULT WHILE REPORTING IT"** line with that
+fault's code and address, instead of the EE looping on it silently.
+
 **PCSX2 cannot show you any of this**: its main RAM starts at address 0, so a
 null store is an ordinary write there and the game runs on happily. A
-null-pointer bug on this platform is a hardware-only symptom, and the crash
-handler is not the thing that will report it.
+null-pointer bug on this platform is a hardware-only symptom.
 
 ### The SIF RPC completion guard
 
@@ -272,8 +281,9 @@ the fault has **never been reproduced** are in
 ![Debugger Screen capture with the Copy image action](img/debugger-copy-image.png)
 
 In **Debugger > Screen**, press **Capture frame**. The game reads its last
-finished frame straight out of GS VRAM, writes `bin/frame.tga` over the same
-`host:` channel every other devkit file uses, and the panel shows it.
+finished frame straight out of GS VRAM and hands it over as `bin/frame.tga` -
+through the IOP on a console ([devlink.md](devlink.md)), as a `host:` file in
+PCSX2 - and the panel shows it.
 
 Every capture is then **kept as a PNG in the project's `screenshots/` folder**,
 named by the clock (`frame-20260817-164501.png`). **Show file** reveals that
@@ -291,9 +301,12 @@ git-ignored. Delete the ones you do not want; nothing reads them.
 
 From a shell, `tyrax-editor --capture-frame <projectDir> [-o out.png]
 [--timeout s]` does the same thing headlessly: it writes the one-shot command
-into `bin/livedbg.cmd`, waits for the game to finish `bin/frame.tga` (progress
+into `bin/livedbg.cmd`, waits for a complete `bin/frame.tga` (progress
 is what decides the wait, so the ~3 s per shot over ps2link is fine) and
-decodes it to a PNG. It is how an unattended A/B on a console gets its
+decodes it to a PNG. On a console the process that owns the session (the
+editor, or the `--run-ps2` that deployed the game) forwards `livedbg.cmd` to
+the IOP and writes the `frame.tga` that comes back, so the command is the same
+either way: about 2 s per picture on a PS2. It is how an unattended A/B on a console gets its
 pictures - a debug build with *Live Debugger* on, deployed with `--run-ps2`.
 `--alpha <png>` writes the frame's own alpha channel as a grey image as well
 (the game stores it in `frame.tga` as is since 1.70.3; the picture readers
@@ -311,11 +324,30 @@ What comes back is the **frame buffer as the GS holds it**, not the television
 picture: the raster the game rendered at, with no aspect correction and no
 letterbox. A 512x448 project answers 512x448.
 
-It costs the game a visible hitch, which is why it is one shot per press rather
-than anything continuous — around a megabyte read back a scan line at a time and
-written the same way. In PCSX2 that is over between two frames; **over ps2link
-it is a network round trip per 1.4 KB, measured at about three seconds** on a
-512x512 buffer, and the game is frozen for all of it.
+It costs the game a hitch, which is why it is one shot per press rather than
+anything continuous: around a megabyte is read back out of VRAM, 16 scan lines
+per transfer, into one block of RAM. What happens to that block decides how
+long the hitch is:
+
+- **On a console with devlink up** the block is handed to
+  `DevLink::writeFileOwned` and the game carries on. It leaves in ~30 slot-sized
+  segments over the next frames (one at a time, so the debugger's reports and
+  the log keep their slot), the IOP sends them as UDP datagrams, and the editor
+  writes `bin/frame.tga` when the last one is in, with the game running
+  throughout. The block is freed once it has left. **Measured on a PS2
+  (2026-11-10, 512x512 at 32 bits, 1 MB): the readback holds the game for
+  34 ms - two fields - and the picture is in the editor 1.4-1.7 s later**
+  (the console log says `readback N ms`, the editor's `received frame.tga
+  (... bytes in N ms)`). Those datagrams are not retransmitted, so the
+  Debugger and `--capture-frame` ask again when no picture has arrived after
+  8 s.
+- **In PCSX2, or with devlink off**, the block is one `host:` write. In PCSX2
+  that is over between two frames.
+- **With no RAM for the block** (a game at the edge of its 32 MB) the picture is
+  streamed to `host:` a line at a time, as it always was before 2.15.0: over
+  ps2link that is a network round trip per 1.4 KB, **measured at about three
+  seconds on a 512x512 buffer, with the game frozen for all of it**. The log
+  line ends in `streamed - no RAM for the whole picture` when this happened.
 
 The picture is the **previous real frame**: the last one the scene rendered, so
 never a half-composed image and never a synthesised
@@ -327,6 +359,81 @@ pressed the button. The alpha channel needs no care — a frame buffer's alpha i
 a working channel rather than coverage, so the game writes the file **opaque**
 and both the panel and the PNG show a picture rather than a half-transparent
 one.
+
+### Live preview
+
+![A live preview picture from a real PlayStation 2](img/live-preview-ps2.png)
+
+**Debugger > Screen** has two modes and opens in **Still**, which costs the
+game nothing until you ask. *Capture frame* is on the Live page as well (the
+PNG lands in `screenshots/`, look at it under Still), and the note there about
+what a picture costs can be put away for good (*Got it, hide this note*,
+remembered in `editor.ini`). **Still** is the capture above, **Live**
+turns it into a small picture stream: the game sends a quarter-resolution picture of its last
+finished frame, and sends the next one as soon as that has left. On a console
+it travels through the IOP ([devlink.md](devlink.md)); in PCSX2 it is a
+`host:` file every third frame. The panel shows the picture, how many arrive a
+second and what each one cost the game.
+
+Measured on a PS2 (2026-11-10, 512x512 at 32 bits, the picture above):
+
+| | |
+|---|---:|
+| Picture | 128x127, 15 bits a pixel, one devlink slot (32.5 KB) |
+| Pictures a second at the editor | **about 20** |
+| Work per picture on the EE | **1.3 ms** (GS blits 0.27, readback 0.24, conversion 0.74) |
+| Game frame rate while streaming | 50 fps, unchanged (a light scene) |
+
+How it stays that cheap: the frame buffer is never read back. The GS shrinks
+it, a quadrant at a time, into the post-fx pass's eighth-resolution scratch
+buffer - so the preview needs **no VRAM of its own** - and only that tile
+comes back over the reverse FIFO: four tiles of ~16 KB instead of a megabyte.
+The picture is cropped by a row or two to fit one slot, because one slot is
+one pump on the EE and one burst on the IOP.
+
+Two things to know before trusting it:
+
+- **It is not free in a scene with no slack.** The readback needs VIF1 idle,
+  so each picture waits for the frame in flight to finish (up to a field with
+  the frame pipeline on). The game would sit that wait out at the flip anyway,
+  which is why the test scene held 50 fps - but that frame loses its EE/GPU
+  overlap. Leave the preview off when you measure frame times.
+- **It shimmers on fine detail.** Each preview pixel stands for 4x4 source
+  pixels and one bilinear tap covers 2x2 of them. It is a preview, not a
+  capture: press *Capture frame* for the real thing.
+
+The switch is one-shot in the command (it rides the step field as -9 / -10,
+every flag bit being taken). The editor keeps the stream on only while
+something shows it - the Screen page in Live mode or the window below - and
+asks again when no picture has come for three seconds (the game was
+restarted: the switch lives in its RAM).
+
+![The live preview in its own window](img/live-preview-window.png)
+
+**Pop out** puts the picture in a window of its own - its own OS window where
+*Windows can leave the main window* is on, so it can sit on another monitor -
+and **Fullscreen** (also F11, or a double-click on the picture) stretches that
+window over its monitor with no frame; Esc leaves. The picture is fitted at
+the television's aspect (4:3, or 16:9 for a widescreen project), not the GS
+raster's. Its controls are glass cards on the picture - what it is and what it
+costs, *Capture still* / *Dock* / *Fullscreen*, and who holds the pad - and
+they go away two seconds after the mouse stops.
+
+With a controller plugged into the PC, **a click on the picture takes the pad**
+and Esc lets it go: that is how you play the game on the console from the
+editor ([remote-pad.md](remote-pad.md#a-real-controller)).
+
+Checked in PCSX2 with a `--ui-script` run (2026-11-10): the Live page, Pop
+out into its own OS window, fullscreen at 1920x1080 and back, Still with a
+capture - 16.7 pictures a second there, one every third frame. Not looked at
+yet with a console attached or with a hand on the mouse (the overlays' hide
+timer, a second monitor).
+
+A trap this found: "is there a new picture" must be the frame number in the
+header, not the file's timestamp. This toolchain's `last_write_time` has
+one-second resolution, and keyed on it the preview showed one picture a second
+of the seventeen the game wrote. The same goes for `livedbg.cmd` in the
+session's forwarder, which now compares the file's bytes.
 
 ### Why the file is written by the game rather than by libdebug
 
@@ -350,16 +457,100 @@ while every other devkit channel, writing through `fopen(name, "wb")` (flags
 runtime keeps the half of libdebug that carries the value — `ps2_screenshot()`,
 the VRAM readback — and writes the file through the same stdio path everything
 else here uses. Two hardware-only traps come with that: the readback lands in
-RAM **behind the EE's data cache** (the line is flushed after every transfer, or
+RAM **behind the EE's data cache** (the cache is flushed after every transfer, or
 rows repeat), and `ps2_screenshot()` refuses to run while VIF1's DMA channel is
 busy and says so only through its return value, so refusals are counted and
 reported instead of being written out as picture.
 
+## A frame's geometry
+
+![The geometry of one frame over its picture](img/vu-frame-geometry.png)
+
+**Debugger > VU memory** opens on **Frame**: press *Capture frame geometry* and
+the game copies **every VU1 chain of one frame**, with the vertex blocks they
+reference, into `bin/vuframe.bin` (through the IOP on a console). The editor
+runs the same transform the microprograms do, on the host, and draws the
+result: every triangle the EE sent, as a wireframe over a picture of the same
+scene, one colour per bag flush.
+
+What it is for: seeing what a frame is made of, at a glance.
+
+- **It shows what was SENT, before VU1 clips or culls anything.** The white
+  rectangle is the drawing window; everything outside it was still built,
+  submitted and run through a microprogram. The *off screen* tile counts the
+  triangles whose box misses the window entirely - in the example above 54 %
+  of the frame.
+- **The list on the right** is the frame flush by flush: **who sent it** (the
+  render stage - Sky, Terrain, Roads, Wheels, Shadow_decals... - or the
+  object's name), runs (mesh packages), triangles, how many are off screen.
+  Click a row, or a triangle in the picture, to isolate that flush; the
+  tooltip names it and its microprogram.
+- **Main view only** (on by default) leaves out the passes that draw somewhere
+  else - the reflection probe, a portal's through-view. They go through VU1
+  too, but their triangles are not on this picture and would count as "off
+  screen".
+- **Flushes in an ordinary frame.** To name the chains the game sends its work
+  at every stage boundary for the one captured frame (the same serialization
+  the render-cost capture uses), which splits batches: the capture has more
+  flushes than a normal frame. The tile shows the normal frame's count; the
+  list shows the capture's.
+- Wheel zooms about the cursor, right-drag pans, *Fit* resets, *Picture*
+  toggles the screenshot underneath.
+
+What it is not:
+
+- **Not the GS stream.** Sprites, the HUD and full-screen passes do not go
+  through VU1 and are not here; nor is anything VU1 itself generates.
+- **Not clipped.** A triangle with a vertex behind the eye cannot be projected
+  on the host and is left out (the count is shown); VU1 clips those on the
+  console.
+- **Named by stage boundary, not by tag.** A chain carries no object id; the
+  name comes from which stage of the render loop had just finished when it
+  was sent. Work that is drawn outside any bracketed stage takes the name of
+  the next one.
+
+From a shell: `tyrax-editor --dump-vuframe <projectDir> [--capture] [--full]
+[-o out.png] [--flip-y]` prints the frame summed by stage and object, heaviest
+first (`--full`: every flush as well), and writes the wireframe as a PNG;
+`--capture` asks the running game for a fresh one first.
+
+### What a flush costs
+
+The list also counts **bags** per flush (one MVP upload each): the pipeline
+can batch several bags into one flush, and "one bag a flush" means it did not.
+Before reading that as waste, one measurement (PS2, 2026-11-11,
+`examples/vehicle-playground` parked at its start, 14 149 triangles):
+
+| | flushes in an ordinary frame | frame work (the game's own `INTERLEAVE settled` figure) | `--profile-frame` Total |
+|---|---:|---:|---:|
+| as shipped: Roads 31 bags in 31 flushes, Static_batches 19 in 19 | 84 | 8.88-9.05 ms | 11.83 / 11.88 ms |
+| a submission batch around both: 31 bags in 4, 19 in 2 | 40 | 8.88-9.05 ms | 11.15 / 11.19 ms |
+
+Halving the flushes did **not** move the frame's work - the same two values
+came up in both arms. The render-cost capture said -0.69 ms, and that is the
+capture's own doing: it drains the GPU at every stage boundary, so it bills a
+stage for waits an ordinary frame overlaps with other work. So:
+
+- **A flush is cheap; a bag and a package are not.** The EE's cost is per bag
+  (prepare) and per package (dispatch) - 99 bags and 605 packages here - and
+  batching changes neither.
+- **Do not size a batching change from `--profile-frame`.** Use it to rank
+  stages; confirm a change against the frame's real work.
+
+How it fits in memory: the game fills one block from both ends - flush records
+from the front, a **pool** of referenced blocks from the back - and stores a
+block once however often it is sent (matched by address AND content, because a
+dynamic buffer is reused within a frame). It takes up to 4 MB if the heap has
+it, less otherwise, and says `TRUNCATED` when the frame did not fit.
+
 ## Inspecting VU1 input
 
-In **Debugger > VU memory**, arm a capture and choose a flush. The game writes
-`bin/vucap.bin`; the editor shows DMA/VIF commands, mesh boundaries, vertices
-and common packet problems.
+**Packet** on the same page is one chain of the frame, decoded word by word:
+arm a capture and choose a flush. The game writes `bin/vucap.bin`; the editor
+shows DMA/VIF commands, mesh boundaries, vertices and common packet problems.
+Since 2.15.0 the decoder also reads the VIF streams inside blocks sent **by
+reference** - where the static pipeline's baked and retained geometry lives;
+before that a busy flush decoded to its structure and one triangle.
 
 The command-line decoder is useful when the UI is not:
 

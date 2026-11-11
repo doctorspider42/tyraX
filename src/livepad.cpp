@@ -9,6 +9,7 @@
 
 #include "input.hpp"
 #include "platform.hpp"
+#include "wire.hpp"
 
 namespace livepad {
 namespace {
@@ -150,9 +151,14 @@ bool decode(const std::vector<unsigned char>& bytes, State& out, uint32_t& seq,
 }
 
 std::string write(const std::string& path, const State& s, uint32_t seq,
-                  bool attached) {
+                  bool attached, const std::string& consoleIp) {
     namespace fs = std::filesystem;
     const std::vector<unsigned char> bytes = encode(s, seq, attached);
+    // The datagram first: it is the one a console game is actually waiting
+    // for, and it costs nothing when nobody listens.
+    if (!consoleIp.empty())
+        (void)wire::sendDatagram(consoleIp, (uint16_t)kDevlinkPort, bytes.data(),
+                                 bytes.size());
     const fs::path target(path);
     const fs::path tmp(path + ".tmp");
     std::error_code ec;

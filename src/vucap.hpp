@@ -92,6 +92,14 @@ struct Capture {
     std::vector<Step> steps;       // decoded DMA tags + VIF commands
     std::vector<Unpack> unpacks;
     std::vector<int> mscal;        // microprogram start addresses seen
+    /** Every microprogram RUN of the chain (MSCAL / MSCALF / MSCNT), in order:
+     * how many unpacks had been seen when it ran, and which program it was.
+     * The unpacks between two runs are that run's input. */
+    struct Run {
+        int unpackEnd = 0;
+        int program = -1;
+    };
+    std::vector<Run> runs;
     int vertexUnpack = -1;         // index into `unpacks`: the vertex stream
     /** Every mesh of the flush, in send order. A flush carries a whole bag, so
      * a busy frame puts a dozen in here; showing only the biggest one made
@@ -153,6 +161,74 @@ struct Capture {
 
 /** Reads and decodes bin/vucap.bin. */
 bool load(const std::string& path, Capture& out);
+
+// --- a whole frame (bin/vuframe.bin) -----------------------------------------
+// Every VU1 chain of ONE frame, decoded and run through the same transform the
+// microprograms perform - on the host, so it costs the game nothing but the
+// copy. What comes out is what the EE SENT: every triangle before VU1 clips or
+// culls it, which is exactly the view that answers "why is this frame heavy".
+
+/** One microprogram run of the frame: one mesh package, ready to draw. */
+struct FrameDraw {
+    int flush = 0;       // which bag flush of the frame it belongs to
+    int program = -1;    // microprogram entry address
+    int tris = 0;        // triangles sent
+    int behind = 0;      // ...with a vertex behind the eye (not drawable here)
+    int offscreen = 0;   // ...whose box misses the drawing window entirely
+    // Screen points, GS plane units (the window is centred on 2048): six floats
+    // a triangle (x0 y0 x1 y1 x2 y2). Triangles behind the eye are left out.
+    std::vector<float> xy;
+};
+
+/** One bag flush of the frame, summed over its runs. */
+struct FrameFlush {
+    // Who sent it (v2 captures): the render stage - "Sky", "Terrain", "Roads",
+    // "Object"... - and, for an object, its runtime index. Empty = unknown.
+    std::string stage;
+    int object = -1;
+    /** False for chains that do not draw the main view (the reflection probe,
+     * a portal's through-view): they are in the capture, but their triangles
+     * are not on this picture and must not count as "off screen". */
+    bool mainView = true;
+    int qw = 0;
+    /** Bags in this chain: one MVP upload each. The pipeline batches up to
+     * four bags into one flush when they qualify; one bag a flush means the
+     * batching did not happen. */
+    int bags = 0;
+    int runs = 0;
+    int tris = 0, behind = 0, offscreen = 0;
+    int firstDraw = 0, drawCount = 0;  // its slice of Frame::draws
+};
+
+struct Frame {
+    bool loaded = false;
+    std::string error;
+    uint32_t frame = 0;
+    int renderWidth = 0, renderHeight = 0;
+    bool truncated = false;        // the game ran out of room: the tail is missing
+    int scene = -1;                // which scene the frame drew (v2)
+    /** Flushes of the last frame drawn the ordinary way. Naming the chains
+     * serializes the frame, which splits batches - this is the real count. */
+    int naturalFlushes = 0;
+    bool tagged = false;           // stage / object names are present
+    // The same three sums over the main view only (what the picture shows).
+    int mainTris = 0, mainBehind = 0, mainOffscreen = 0;
+    size_t bytes = 0;              // file size
+    size_t poolBytes = 0;          // ...of which referenced blocks, stored once
+    std::vector<FrameFlush> flushes;
+    std::vector<FrameDraw> draws;
+    int tris = 0, behind = 0, offscreen = 0;
+    // The drawing window in GS plane units.
+    float winX0 = 0, winX1 = 0, winY0 = 0, winY1 = 0;
+};
+
+/** Reads and decodes bin/vuframe.bin. `flipY` picks the other screen-Y
+ * convention (see decodeVuMem's note on the GS axis). */
+bool loadFrame(const std::string& path, Frame& out, bool flipY = false);
+
+/** Rasterizes the frame's wireframe into an RGBA image of the render size
+ * (one colour per flush). For --dump-vuframe and tests. */
+void rasterFrame(const Frame& f, std::vector<unsigned char>& rgba, int& w, int& h);
 
 /** Scans a block of VU1 data memory (1024 quadwords as words) for the GIF
  * packets a microprogram staged, and decodes their vertices.

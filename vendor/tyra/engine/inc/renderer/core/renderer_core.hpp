@@ -386,7 +386,10 @@ class RendererCore : public RendererCore2dBounds {
    * editor's Live Debugger is attached: with its snapshot writes to host:
    * and music streaming over ps2link, a frame loop with no sleep hung the
    * console (SIF stuck) about a minute in, 2 of 2 runs, while the sleeping
-   * one ran clean - mechanism not found (docs/backlog.md).
+   * one ran clean - mechanism not found (docs/backlog.md). The generated
+   * game asks for it only while the debugger is attached AND reports through
+   * host: files; with devlink carrying them it stays off (14 minutes clean on
+   * a PS2, 2026-11-10).
    */
   void setFrameYield(bool on) { frameYield = on; }
   bool getFrameYield() const { return frameYield; }

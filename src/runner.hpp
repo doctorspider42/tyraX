@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 
+#include "devlink_host.hpp"
 #include "gdbstub.hpp"
 #include "platform.hpp"
 #include "project.hpp"
@@ -210,6 +211,10 @@ private:
     mutable std::mutex ps2ClientMutex_;
     std::shared_ptr<platform::Process> ps2Client_;
     std::thread ps2Pump_;
+    // devlink's editor end for the same session (docs/devlink.md): the game's
+    // reports, file writes, LOG lines and the IOP watchdog arrive over UDP.
+    // Lives here, not in the App, so a CLI --run-ps2 gets the same [ps2] lines.
+    devlink::Receiver devlinkRx_;
     // Output lines received from ps2client since the last deploy. ps2link
     // commands are UDP fire-and-forget (reset/execee "succeed" against a dead
     // IP), so the console's first log line is the only real liveness signal.

@@ -24,6 +24,8 @@
 #include <cstring>
 #include <math.h>
 
+#include <debug/devlink.hpp>
+
 #include "scripts/script.hpp"
 #include "scripts/live_logic.gen.hpp"
 #include "scripts/live_debug.gen.hpp"
@@ -272,8 +274,10 @@ bool parse(const unsigned char* b, int size) {
 }
 
 void poll(ScriptContext& ctx) {
-  FILE* f = fopen(Tyra::FileUtils::fromCwd("livelogic.bin").c_str(), "rb");
-  if (!f) {
+  // A mirror in RAM under ps2link with devlink up, host: everywhere else
+  // (docs/devlink.md). -1 = no patch file.
+  const int got = Tyra::DevLink::readFile("livelogic.bin", buf, (int)sizeof(buf));
+  if (got < 0) {
     // The editor removed the patch (graphs back to what was built): hand the
     // graphs back to their native scripts.
     if (progCount > 0) {
@@ -283,9 +287,7 @@ void poll(ScriptContext& ctx) {
     }
     return;
   }
-  const size_t got = fread(buf, 1, sizeof(buf), f);
-  fclose(f);
-  if (parse(buf, (int)got)) resolveOwners(ctx);
+  if (parse(buf, got)) resolveOwners(ctx);
 }
 
 float* stateOf(const Prog& pr) { return state + pr.stateFirst; }
@@ -632,7 +634,7 @@ void tick(ScriptContext& ctx) {
   // Over ps2link every fopen is a network round-trip; PCSX2's host filesystem
   // is plain local IO, so poll ~10x/s there.
   if (--cooldown <= 0) {
-    cooldown = Tyra::IrxLoader::keepIopResident ? 25 : 6;
+    cooldown = (Tyra::IrxLoader::keepIopResident && !Tyra::DevLink::start()) ? 25 : 6;
     poll(ctx);
   }
   for (int i = 0; i < progCount; ++i)

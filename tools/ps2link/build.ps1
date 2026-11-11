@@ -91,6 +91,10 @@ if (-not (Test-Path (Join-Path $work '.git'))) {
     Write-Host "== Reusing existing clone (use -Clean to reset) =="
     git -C $work checkout --quiet -- . 2>&1 | Write-Host
     Invoke-Checked 'git checkout'
+    # Files the patch ADDS (r9's dev9pre/) survive a checkout as untracked
+    # files, and the `git apply` below then refuses to create them again.
+    git -C $work clean -fdq 2>&1 | Write-Host
+    Invoke-Checked 'git clean'
 }
 
 Write-Host "== Applying tyrax.patch =="

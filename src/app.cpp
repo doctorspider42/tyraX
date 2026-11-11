@@ -80,6 +80,26 @@
 // editor.ini under platform::configDir(). Trivial key=value lines; the whole
 // file is rewritten on any change, so load once and save the full struct.
 // ---------------------------------------------------------------------------
+// The controller mapping as one editor.ini value: sixteen PS2 button indices
+// (-1 = nothing), in gamepad::Source order.
+static std::string gamepadMapText(const gamepad::Prefs& p) {
+    std::string out;
+    for (int i = 0; i < gamepad::kSourceCount; ++i) {
+        if (i) out += ',';
+        out += std::to_string(p.map[i]);
+    }
+    return out;
+}
+
+static void gamepadMapParse(const std::string& v, gamepad::Prefs& p) {
+    std::stringstream ss(v);
+    std::string item;
+    for (int i = 0; i < gamepad::kSourceCount && std::getline(ss, item, ','); ++i) {
+        const int t = atoi(item.c_str());
+        p.map[i] = t >= -1 && t < 16 ? t : p.map[i];
+    }
+}
+
 struct EditorConfig {
     float uiScale = 0.0f;  // 0 == auto (follow the display DPI)
     NavConfig nav;
@@ -243,6 +263,10 @@ struct EditorConfig {
     // match the PS2 (the project's filters), 1 = everything smooth, 2 =
     // everything pixel. A way of looking, like viewportPs2Shade.
     int viewportTexFilter = 0;
+    // The controller that drives the Remote Pad (gamepad.hpp).
+    gamepad::Prefs gamepad;
+    // Debugger > Screen > Live: the "each picture costs..." note was dismissed.
+    bool liveNoteHidden = false;
 };
 
 // How many entries the recent-projects list keeps. Ten fills the welcome
@@ -354,6 +378,15 @@ static EditorConfig loadEditorConfig() {
         else if (match("ambienceDetailed", v)) cfg.ambienceDetailed = toI(v, 0) != 0;
         else if (match("droneDetailed", v)) cfg.droneDetailed = toI(v, 0) != 0;
         else if (match("multiViewports", v)) cfg.multiViewports = toI(v, 1) != 0;
+        else if (match("liveNoteHidden", v)) cfg.liveNoteHidden = toI(v, 0) != 0;
+        else if (match("gamepadEnabled", v)) cfg.gamepad.enabled = toI(v, 1) != 0;
+        else if (match("gamepadDevice", v)) cfg.gamepad.device = v;
+        else if (match("gamepadPad", v)) cfg.gamepad.pad = std::clamp(toI(v, 0), 0, 1);
+        else if (match("gamepadSend", v)) cfg.gamepad.sendMode = std::clamp(toI(v, 0), 0, 2);
+        else if (match("gamepadDeadZone", v)) cfg.gamepad.deadZone = std::clamp(toI(v, 12), 0, 40);
+        else if (match("gamepadTrigger", v)) cfg.gamepad.trigger = std::clamp(toI(v, 30), 5, 95);
+        else if (match("gamepadMap", v)) gamepadMapParse(v, cfg.gamepad);
+        else if (match("gamepadInvertRY", v)) cfg.gamepad.invertRY = toI(v, 0) != 0;
         else if (match("viewportTexFilter", v)) {
             cfg.viewportTexFilter = toI(v, 0);
             if (cfg.viewportTexFilter < 0 || cfg.viewportTexFilter > 2)
@@ -443,7 +476,16 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "ambienceDetailed=" << (cfg.ambienceDetailed ? 1 : 0) << "\n"
       << "droneDetailed=" << (cfg.droneDetailed ? 1 : 0) << "\n"
       << "multiViewports=" << (cfg.multiViewports ? 1 : 0) << "\n"
-      << "viewportTexFilter=" << cfg.viewportTexFilter << "\n";
+      << "viewportTexFilter=" << cfg.viewportTexFilter << "\n"
+      << "gamepadEnabled=" << (cfg.gamepad.enabled ? 1 : 0) << "\n"
+      << "gamepadDevice=" << cfg.gamepad.device << "\n"
+      << "gamepadPad=" << cfg.gamepad.pad << "\n"
+      << "gamepadSend=" << cfg.gamepad.sendMode << "\n"
+      << "gamepadDeadZone=" << cfg.gamepad.deadZone << "\n"
+      << "gamepadTrigger=" << cfg.gamepad.trigger << "\n"
+      << "gamepadMap=" << gamepadMapText(cfg.gamepad) << "\n"
+      << "gamepadInvertRY=" << (cfg.gamepad.invertRY ? 1 : 0) << "\n"
+      << "liveNoteHidden=" << (cfg.liveNoteHidden ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -725,6 +767,8 @@ int App::run(const std::string& initialProjectDir) {
         // frame 1); later flips are applied between frames in the loop below.
         multiViewports_ = cfg.multiViewports;
         mvp::setEnabled(multiViewports_);
+        padCtl_ = cfg.gamepad;
+        dbgLiveNoteHidden_ = cfg.liveNoteHidden;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -1076,6 +1120,11 @@ void App::drawUI() {
     // only when the compiled program actually changed).
     liveLogicTick();
 
+    // devlink (docs/devlink.md): on a console, the bin/ files the channels
+    // above just wrote are pushed to the game's RAM mirrors, and what the game
+    // writes through the IOP comes back into bin/.
+    devlinkTick();
+
     // Drain collaboration-session events (peer joins/leaves, sync completion,
     // session end) - the only place session state meets project_/ImGui.
     sessionTick();
@@ -1141,6 +1190,7 @@ void App::drawUI() {
     drawAnimEditorWindow();
     drawDebuggerWindow();
     drawRemotePadWindow();
+    drawLivePreviewWindow();
     drawSessionWindow();
     drawPhoneCamWindow();
     // The update check's answer, collected here and not from the modal's body:
@@ -1331,7 +1381,8 @@ void App::saveGlobalConfig() {
                       gpuBakes_, globalUpdateCheck_, globalUpdateSkip_,
                       globalConsoleLogLines_, globalConsoleLogFiles_,
                       nativeTitleBar_, ambienceDetailed_, droneDetailed_,
-                      std::move(recent), multiViewports_, viewportTexFilter_});
+                      std::move(recent), multiViewports_, viewportTexFilter_,
+                      padCtl_, dbgLiveNoteHidden_});
 }
 
 void App::setUiScale(float userScale) {
@@ -21551,6 +21602,245 @@ void App::drawEditorPreferencesModal() {
         }
         rowDesc("A PS2 on this network running PS2LINK.ELF. The game boots over ethernet with assets served "
                 "from this computer.");
+    }
+    if (show(2, "Controller", "gamepad xbox pad joystick remote pad dead zone trigger stick live preview mapping remap button")) {
+        if (query.empty()) ui::Caption("Controller");
+        const std::vector<std::string> pads = gamepad::devices();
+        const theme::PadColors& pc = theme::padColors();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        rowStart("Use a controller");
+        if (ui::Switch("for Remote Pad##ctl", &padCtl_.enabled)) saveGlobalConfig();
+        ImGui::BeginDisabled(!padCtl_.enabled);
+        rowStart("Controller");
+        ImGui::SetNextItemWidth(scaled(360));
+        const std::string firstLabel =
+            pads.empty() ? std::string("First connected") : "First connected: " + pads.front();
+        if (ui::BeginCombo("##ctldevice", padCtl_.device.empty() ? firstLabel.c_str() : padCtl_.device.c_str())) {
+            if (ImGui::Selectable(firstLabel.c_str(), padCtl_.device.empty())) {
+                padCtl_.device.clear();
+                saveGlobalConfig();
+            }
+            for (const std::string& name : pads)
+                if (ImGui::Selectable((name + "##ctldev").c_str(), padCtl_.device == name)) {
+                    padCtl_.device = name;
+                    saveGlobalConfig();
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::SetCursorPosX(colX);
+        ui::StatusLine(pads.empty() ? 1 : 0, pads.empty() ? "No controller is connected - plug in an Xbox pad."
+                                                           : "Connected");
+        rowStart("Drives");
+        static const char* const kCtlPads[] = {"Pad 1##ctl", "Pad 2##ctl"};
+        if (ui::Segmented("##ctlpad", kCtlPads, 2, &padCtl_.pad, scaled(160))) saveGlobalConfig();
+
+        // When the input is sent: three choices, each saying what it means.
+        rowStart("Send input");
+        auto sendCard = [&](int mode, const char* title, const char* desc) {
+            ImGui::SetCursorPosX(colX);
+            const float w = ImGui::GetContentRegionAvail().x;
+            const float padX = scaled(10), padY = scaled(8), lineH = ImGui::GetTextLineHeight();
+            const float h = padY * 2.0f + lineH * 2.0f + scaled(2);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImGui::PushID(mode);
+            const bool clicked = ImGui::InvisibleButton(title, ImVec2(w, h));
+            ImGui::PopID();
+            const bool sel = padCtl_.sendMode == mode, hov = ImGui::IsItemHovered();
+            const float round = ImGui::GetStyle().FrameRounding;
+            const ImVec2 q(p.x + w, p.y + h);
+            dl->AddRectFilled(p, q,
+                              ImGui::GetColorU32(sel ? ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.12f)
+                                                     : hov ? sem.surface : sem.field),
+                              round);
+            dl->AddRect(p, q, ImGui::GetColorU32(sel ? sem.accent : sem.border), round);
+            const float r = scaled(7);
+            const ImVec2 c(p.x + padX + r, p.y + padY + lineH * 0.5f);
+            if (sel) {
+                dl->AddCircleFilled(c, r, ImGui::GetColorU32(sem.accent));
+                dl->AddCircleFilled(c, r * 0.42f, ImGui::GetColorU32(sem.ground));
+            } else {
+                dl->AddCircle(c, r, ImGui::GetColorU32(sem.textDim));
+            }
+            const float tx = p.x + padX + r * 2.0f + scaled(10);
+            dl->AddText(ImVec2(tx, p.y + padY), ImGui::GetColorU32(sem.text), title);
+            dl->AddText(ImVec2(tx, p.y + padY + lineH + scaled(2)), ImGui::GetColorU32(sem.textDim), desc);
+            if (clicked && !sel) {
+                padCtl_.sendMode = mode;
+                saveGlobalConfig();
+            }
+        };
+        sendCard(gamepad::kWhilePreviewHasPad, "While the preview has the pad",
+                 "Click the picture to take it, Esc or Guide to let go.");
+        sendCard(gamepad::kWhileEditorFocused, "While the editor is in front",
+                 "Any editor window. Stops when you switch to another app.");
+        sendCard(gamepad::kAlways, "Always", "Also while you play something else on this PC.");
+
+        rowStart("Stick dead zone");
+        ImGui::SetNextItemWidth(scaled(260));
+        ImGui::SliderInt("##ctldead", &padCtl_.deadZone, 0, 40, "%d%%");
+        if (ImGui::IsItemDeactivatedAfterEdit()) saveGlobalConfig();
+        rowStart("Trigger threshold");
+        ImGui::SetNextItemWidth(scaled(260));
+        ImGui::SliderInt("##ctltrigger", &padCtl_.trigger, 5, 95, "%d%%");
+        if (ImGui::IsItemDeactivatedAfterEdit()) saveGlobalConfig();
+        rowStart("Invert right stick Y");
+        if (ui::Switch("##ctlinvert", &padCtl_.invertRY)) saveGlobalConfig();
+        rowStart("Face buttons");
+        static const char* const kCtlFace[] = {"By position", "By label"};
+        int face = gamepad::facePreset(padCtl_);
+        if (ui::Segmented("##ctlface", kCtlFace, 2, &face, scaled(240))) {
+            gamepad::setFacePreset(padCtl_, face == 1);
+            saveGlobalConfig();
+        }
+        rowDesc(face == 1 ? "A = Circle, B = Cross - the letters, as on a Japanese pad."
+                          : face == 0 ? "A = Cross, B = Circle - the same place under your thumb."
+                                      : "Custom - set below.");
+
+        // ---- Mapping: the pad in the middle, what each control sends around it.
+        ImGui::Dummy(ImVec2(0, scaled(6)));
+        ui::BeginCard("##ctlmap", ImVec2(0, 0));
+        ImGui::AlignTextToFramePadding();
+        if (ui::boldFont()) ImGui::PushFont(ui::boldFont());
+        ImGui::TextUnformatted("Mapping");
+        if (ui::boldFont()) ImGui::PopFont();
+        ImGui::SameLine();
+        ImGui::TextColored(sem.textDim, "Press a button on your controller, or click one here, then pick what it sends.");
+        const float resetW = ImGui::CalcTextSize("Reset mapping").x + ImGui::GetStyle().FramePadding.x * 3.0f;
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - resetW);
+        if (ui::GhostButton("Reset mapping")) {
+            gamepad::resetMap(padCtl_);
+            saveGlobalConfig();
+        }
+        auto targetColor = [&](int t) -> ImVec4 {
+            return t == 0 ? pc.cross : t == 1 ? pc.square : t == 2 ? pc.triangle : t == 3 ? pc.circle
+                   : t < 0 ? sem.textDim : sem.text;
+        };
+        // One control: its name (lit while it is held on the real pad) and
+        // the list of what it can send.
+        auto mapRow = [&](int src, float labelW) {
+            ImGui::PushID(src);
+            const bool sel = prefCtlSel_ == src;
+            const bool down = gamepad::held(padCtlSample_, src, padCtl_);
+            ImGui::AlignTextToFramePadding();
+            if (ui::monoFont()) ImGui::PushFont(ui::monoFont());
+            ImGui::TextColored(down ? sem.ok : sel ? sem.accent : sem.text, "%s", gamepad::sourceName(src));
+            if (ui::monoFont()) ImGui::PopFont();
+            if (ImGui::IsItemClicked()) prefCtlSel_ = src;
+            ImGui::SameLine(labelW);  // an offset from the COLUMN start, not the window
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            const int cur = padCtl_.map[src];
+            ImGui::PushStyleColor(ImGuiCol_Text, targetColor(cur));
+            ImGui::PushStyleColor(ImGuiCol_Border, sel ? sem.accent : sem.border);
+            const bool open = ui::BeginCombo("##sends", gamepad::targetName(cur));
+            ImGui::PopStyleColor(2);
+            if (open) {
+                prefCtlSel_ = src;
+                static const int kOrder[] = {0, 3, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1};
+                for (int t : kOrder) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, targetColor(t));
+                    const bool pick = ImGui::Selectable(gamepad::targetName(t), t == cur);
+                    ImGui::PopStyleColor();
+                    if (pick) {
+                        padCtl_.map[src] = t;
+                        saveGlobalConfig();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::PopID();
+        };
+        for (int src = 0; src < gamepad::kSourceCount; ++src) {
+            const bool down = gamepad::held(padCtlSample_, src, padCtl_);
+            if (down && !(prefCtlHeld_ & (1u << src))) {
+                prefCtlSel_ = src;
+                prefCtlOrphan_ = -1;
+            }
+            prefCtlHeld_ = down ? (prefCtlHeld_ | (1u << src)) : (prefCtlHeld_ & ~(1u << src));
+        }
+        if (ImGui::BeginTable("##ctlmapgrid", 3)) {
+            ImGui::TableSetupColumn("left", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("pad", ImGuiTableColumnFlags_WidthFixed, scaled(290));
+            ImGui::TableSetupColumn("right", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            for (int src : {gamepad::kSrcLT, gamepad::kSrcLB, gamepad::kSrcView, gamepad::kSrcLClick})
+                mapRow(src, scaled(76));
+            ImGui::TableSetColumnIndex(1);
+            {
+                // THE controller drawing - the same DualShock the Remote Pad
+                // shows (ui::PadDiagram), so a button looks the same wherever
+                // the editor draws it. Here it is the PS2 side of the mapping:
+                // what the real controller holds presses the drawn buttons
+                // (through the map), the selected control's target wears the
+                // accent ring, and a click on a drawn button selects the
+                // control that sends it.
+                ui::PadState ps;
+                uint32_t cb = 0;
+                int8_t ca[4] = {};
+                gamepad::toPad(padCtlSample_, padCtl_, cb, ca);
+                ps.pressed = cb & 0xFFFFu;
+                ps.stick[0] = ImVec2(ca[0] / 127.0f, ca[1] / 127.0f);
+                ps.stick[1] = ImVec2(ca[2] / 127.0f, ca[3] / 127.0f);
+                ps.deadzone[0] = ps.deadzone[1] = padCtl_.deadZone / 100.0f;
+                const int selTarget = padCtl_.map[prefCtlSel_];
+                if (selTarget >= 0) ps.selected = 1u << selTarget;
+                ps.port = padCtl_.pad + 1;
+                ps.led = padCtlSample_.connected;
+                ps.backdrop = sem.surface;  // the card
+                ui::PadDiagramOut po;
+                ui::PadDiagram("##ctlpadmap", ui::PadMode::Interactive, ImGui::GetContentRegionAvail().x, ps, &po);
+                int picked = po.clicked;
+                if (po.stickClicked[0]) picked = 10;  // L3
+                if (po.stickClicked[1]) picked = 13;  // R3
+                bool orphan = false;
+                if (picked >= 0) {
+                    orphan = true;
+                    for (int src = 0; src < gamepad::kSourceCount; ++src)
+                        if (padCtl_.map[src] == picked) {
+                            prefCtlSel_ = src;
+                            orphan = false;
+                            break;
+                        }
+                    if (orphan) prefCtlOrphan_ = picked;
+                    else prefCtlOrphan_ = -1;
+                }
+                char cap[120];
+                if (prefCtlOrphan_ >= 0)
+                    snprintf(cap, sizeof(cap), "Nothing sends %s yet - pick it in a list.",
+                             gamepad::targetName(prefCtlOrphan_));
+                else
+                    snprintf(cap, sizeof(cap), "%s sends %s. Guide releases the pad.",
+                             gamepad::sourceName(prefCtlSel_), gamepad::targetName(padCtl_.map[prefCtlSel_]));
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextColored(sem.textDim, "%s", cap);
+                ImGui::PopTextWrapPos();
+            }
+            ImGui::TableSetColumnIndex(2);
+            for (int src : {gamepad::kSrcRT, gamepad::kSrcRB, gamepad::kSrcMenu, gamepad::kSrcRClick})
+                mapRow(src, scaled(76));
+            ImGui::EndTable();
+        }
+        if (ImGui::BeginTable("##ctlmapface", 4, ImGuiTableFlags_SizingStretchSame)) {
+            ImGui::TableNextRow();
+            int col = 0;
+            for (int src : {gamepad::kSrcA, gamepad::kSrcB, gamepad::kSrcX, gamepad::kSrcY}) {
+                ImGui::TableSetColumnIndex(col++);
+                mapRow(src, scaled(30));
+            }
+            ImGui::TableNextRow();
+            col = 0;
+            for (int src : {gamepad::kSrcUp, gamepad::kSrcDown, gamepad::kSrcLeft, gamepad::kSrcRight}) {
+                ImGui::TableSetColumnIndex(col++);
+                mapRow(src, scaled(56));
+            }
+            ImGui::EndTable();
+        }
+        ui::EndCard();
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(sem.textDim, "Saved in editor.ini on this machine. Nothing here is written to the "
+                                        "project or reaches the game build.");
+        ImGui::PopTextWrapPos();
+        ImGui::EndDisabled();
     }
     if (show(2, "Console log", "lines files kept logs ps2")) {
         rowStart("Console log");

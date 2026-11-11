@@ -4,6 +4,63 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## devlink: what is left (2026-11-08)
+
+All five phases are in and verified on a PS2 (docs/devlink.md). Left:
+
+- **Still on host:** the input recorder (a stream on an open file), the boot
+  snapshot and the crash report (written after an EE exception, with no loop
+  left to pump segments).
+- **The big file transfers with music playing** have not been listened to: a
+  1 MB screenshot is ~1.5 s of steady IOP traffic (docs/devlink.md, "The
+  self-screenshot"), and TCP traffic has starved audsrv before.
+- **The re-ask after a lost datagram** (Debugger and `--capture-frame`) has
+  only run when the file was lost for another reason; no real loss was seen
+  in a dozen 1 MB transfers.
+- **Batching roads and static batches when they are not interleaved: a dead
+  end** (2026-11-11, PS2, docs/devkit.md "What a flush costs"): 84 -> 40
+  flushes a frame, frame work unchanged. What the same capture does point at
+  is bag and package COUNT: vehicle-playground's start frame is 99 bags and
+  605 packages for 14 149 triangles (about 23 triangles a package), terrain
+  alone 19 bags for 778 triangles.
+- **A frame's geometry: next steps** (docs/devkit.md): an overdraw map, an orbitable 3D view from the depth, and running the host VU1
+  simulator per package so clipped and culled triangles show as VU1 leaves
+  them. Not tried on a heavy scene: Motor District's ~120 flushes may not fit
+  the 4 MB capture (it says TRUNCATED) and ~100 k lines have not been drawn.
+- **The controller is untested by hand** (2026-11-10): `gamepad.cpp`, the
+  take / release rule and the three send modes compile and no controller was
+  connected when they were built. The windows themselves (Live / Still, Pop
+  out, Fullscreen, the Controller preferences, the Remote Pad card) were
+  looked at in a `--ui-script` run against PCSX2. Check with a pad in a hand:
+  take / release, the send modes, fullscreen on a second monitor, the
+  overlays' hide timer, PCSX2's double input, and all of it against a PS2.
+- **Other channels still key on `last_write_time`** (`frame.tga`, `vucap.bin`
+  in `devkit_ui.cpp`): one-second resolution on this toolchain, so two
+  captures within a second read as one. Harmless for one-shots a person
+  clicks; a script that fires them faster will miss one.
+- **The live preview** (docs/devkit.md, "Live preview") is PS2-measured
+  through a test script only: the panel's checkbox and picture have not been
+  looked at with a console attached, the stream has not run in a GS-heavy
+  scene (where each picture costs that frame its EE/GPU overlap), in a 16-bit
+  or interlaced display mode, or with music playing.
+- **The frame yield is off while devlink carries the debugger's reports**
+  (`livedbg::needsFrameYield`, 2026-11-10): the hang it guards needed the
+  attached debugger's `host:` writes from the main thread, and devlink removed
+  them on a console. One run on a PS2: `showcase`, music streaming over
+  ps2link, debugger attached, yield off - 14 minutes clean (42 000 frames at
+  50 fps, reports arriving throughout), where the sleepless loop used to hang
+  in about a minute. Owed: a second run, a listen (nobody heard the music),
+  and the control arm - the old hang was never reproduced on today's engine,
+  so "devlink removed the trigger" is the likely reading, not a proven one.
+  The mechanism of the original hang is still not found.
+- **The IOP watchdog cries wolf during a long scene load**: `showcase` logged
+  "the game silent for 3 s" while loading (no frame, so no pump, so no
+  heartbeat) and ran on fine. The heartbeat needs to come from the loading
+  loop too, or the editor should not call it a crash before the first frame.
+- **Hard hangs** (an EE looping with interrupts off, a wedged bus) still need a
+  power cycle - no software path exists; the watchdog now says when that is
+  the case.
+
 ## Script debugger: what is left (2026-10-28)
 
 The script debugger (docs/script-debugger.md) is measured end to end on Windows:

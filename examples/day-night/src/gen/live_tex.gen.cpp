@@ -5,6 +5,7 @@
 #include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <debug/devlink.hpp>
 #include "scripts/script.hpp"
 
 namespace Day_night {
@@ -23,13 +24,13 @@ class LiveTex : public Script {
     if (--cooldown_ > 0) return;
     // same cadence reasoning as Live Link: every fopen is a
     // network round-trip under ps2link
-    cooldown_ = Tyra::IrxLoader::keepIopResident ? 25 : 6;
+    cooldown_ = (Tyra::IrxLoader::keepIopResident && !Tyra::DevLink::start()) ? 25 : 6;
 
     static unsigned char buf[16 + LT_MAX * LT_STRIDE + 4];
-    FILE* f = fopen(Tyra::FileUtils::fromCwd("livetex.bin").c_str(), "rb");
-    if (!f) return;
-    const size_t got = fread(buf, 1, sizeof(buf), f);
-    fclose(f);
+    // devlink mirror under ps2link, host: elsewhere (docs/devlink.md)
+    const int read = Tyra::DevLink::readFile("livetex.bin", buf, (int)sizeof(buf));
+    if (read < 0) return;
+    const size_t got = (size_t)read;
     if (got < 20) return;
     u32 magic, version, seq, count;
     memcpy(&magic, buf + 0, 4);

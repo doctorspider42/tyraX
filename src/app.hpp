@@ -35,7 +35,9 @@
 #include "elfsym.hpp"
 #include "gdbstub.hpp"  // the script debugger's GDB server
 #include "vucap.hpp"
+#include "devlink_host.hpp"
 #include "livedbg.hpp"
+#include "gamepad.hpp"
 #include "livepad.hpp"
 #include "livereplay.hpp"
 #include "logview.hpp"  // LogView members (the Output / Debug severity split)
@@ -4137,6 +4139,14 @@ private:
     livedbg::Timeline dbgTimeline_;  // per-frame fire history (the scrub)
     livedbg::Command dbgCmd_;       // last command written (state + seq)
     bool dbgCmdWritten_ = false;    // has the current dbgCmd_ reached the game?
+    // devlink (docs/devlink.md): on a console the command also goes out as a
+    // datagram - resent every second, because UDP may drop it and because the
+    // console's answers can only come back while we keep talking to it - and
+    // the game's reports come back as datagrams that the Runner's devlink
+    // receiver writes into bin/livedbg.bin.
+    std::vector<unsigned char> dbgCmdBytes_;
+    double dbgCmdResendAt_ = 0.0;
+    devlink::FilePusher devlinkPush_;  // the receiver lives in the Runner
     std::vector<uint32_t> dbgPrevHits_;  // previous snapshot's counters
     std::vector<double> dbgHeat_;   // per key: ImGui::GetTime() of its last fire
     std::vector<uint16_t> dbgFireQueue_;  // keys the user asked to force-fire
@@ -4307,7 +4317,24 @@ private:
     double padScriptUntil_ = 0.0;
     bool padScriptRunning_ = false;
     void padScriptTick();  // advance it; called from remotePadTick
+    // A real controller on this PC as a fourth way of holding the game's pad
+    // (gamepad.hpp, docs/remote-pad.md "A real controller"). Its preferences
+    // are per machine (editor.ini). It drives the game with no panel open:
+    // the point is playing on the console while watching the live preview.
+    gamepad::Prefs padCtl_;
+    gamepad::Sample padCtlSample_;
+    bool padCtlTaken_ = false;    // the live preview holds the pad (send mode 0)
+    bool padCtlDriving_ = false;  // this frame's input goes to the game
+    livepad::State padSent_;      // what the last write carried
+    double padLastWrite_ = 0.0;
+    void gamepadTick(bool usable);
+    int prefCtlSel_ = 0;          // the control picked in Preferences > Mapping
+    int prefCtlOrphan_ = -1;      // a drawn PS2 button clicked that nothing sends
+    unsigned prefCtlHeld_ = 0;    // controls held last frame (a new press selects)
+    bool editorHasFocus() const;
     void remotePadTick();
+    std::string padConsoleIp() const;  // devlink target, "" = file only
+    void devlinkTick();                // receiver + file mirror pusher
     void drawRemotePadWindow();
 
     // UI scripting (docs/ui-scripting.md): --ui-script drives the editor itself
@@ -4374,11 +4401,61 @@ private:
     int dbgShotTorn_ = 0;           // consecutive polls that saw NO progress
     size_t dbgShotPartial_ = 0;     // size of the last short read - see below
     bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
+    // On a console the picture comes back as ~900 UDP datagrams with no
+    // retransmission (docs/devlink.md): one lost = no file, silently. So a
+    // wait that outlasts any honest transfer asks again, twice at most.
+    double dbgShotAskedAt_ = 0.0;   // 0 = stamp it on the next debugger tick
+    int dbgShotRetries_ = 0;
     std::string dbgShotFile_;       // the PNG this capture was kept as
     std::vector<unsigned char> dbgShotPixels_;  // RGBA, for Copy image
     std::string dbgShotError_;
     void dbgReadFrameShot();
+    // The live preview (docs/devkit.md): bin/stream.bin, a quarter-resolution
+    // picture the game sends again as soon as the last one has left.
+    bool dbgStreamOn_ = false;
+    unsigned int dbgStreamTex_ = 0;
+    int dbgStreamW_ = 0, dbgStreamH_ = 0;
+    long long dbgStreamStamp_ = 0;   // frame number + 1 of the picture shown
+    uint32_t dbgStreamFrame_ = 0, dbgStreamCostUs_ = 0;
+    double dbgStreamAt_ = 0.0;       // when the last picture arrived
+    double dbgStreamRateAt_ = 0.0;   // start of the current rate window
+    int dbgStreamRateCount_ = 0;
+    float dbgStreamFps_ = 0.0f;
+    void dbgReadStream();
+    // Debugger > Screen is Live (the stream) or Still (the full capture). The
+    // stream runs only while something shows it: the page in Live mode or the
+    // popped-out window ask for it every frame, livedbgTick turns it on / off.
+    bool dbgScreenStill_ = true;       // Still is the default: Live costs the game
+    bool dbgLiveNoteHidden_ = false;   // "each picture costs..." dismissed (editor.ini)
+    bool dbgStreamWanted_ = false;
+    double dbgStreamAskedAt_ = 0.0;
+    void dbgSetStream(bool on);
+    // The live preview in a window of its own (its own OS window where panels
+    // can leave the editor), optionally covering the whole monitor.
+    bool dbgPreviewOpen_ = false;
+    bool dbgPreviewFull_ = false;
+    bool dbgPreviewRestore_ = false;   // put the window back where it was
+    int dbgPreviewMonitor_ = -1;
+    ImVec2 dbgPreviewPos_ = ImVec2(0, 0), dbgPreviewSize_ = ImVec2(0, 0);
+    double dbgPreviewMouseAt_ = 0.0;   // overlays hide 2 s after the last move
+    float dbgPreviewToolsW_ = 0.0f, dbgPreviewPadW_ = 0.0f;
+    void dbgDrawLivePicture(ImVec2 pos, ImVec2 size, bool inWindow);
+    void dbgDrawScreenLive(bool live);
+    void drawLivePreviewWindow();
     void dbgReadVuCapture();
+    // Debugger > VU1 > Frame: the geometry of one whole frame (bin/vuframe.bin,
+    // docs/devkit.md "A frame's geometry") as a wireframe over the picture.
+    vucap::Frame dbgVuFrame_;
+    long long dbgVuFrameKey_ = -1;     // frame number + size of the file decoded
+    bool dbgVuFrameWaiting_ = false;
+    bool dbgVuPacketMode_ = false;     // false = Frame (the default), true = Packet
+    bool dbgVuFramePicture_ = true;    // draw the last Still capture under it
+    bool dbgVuFrameMainOnly_ = true;   // leave out reflection / portal passes
+    int dbgVuFrameSel_ = -1;           // the flush picked in the list / canvas
+    float dbgVuFrameZoom_ = 1.0f;
+    ImVec2 dbgVuFramePan_ = ImVec2(0, 0);
+    void dbgReadVuFrame();
+    void dbgDrawVuFrame(bool live);
     void dbgReadCrashReport();
     void dbgResolveCrashNames();
     // "The game stopped reporting": the devkit heartbeat died without a crash

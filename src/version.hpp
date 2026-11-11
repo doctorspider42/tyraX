@@ -5618,8 +5618,32 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 14
+#define TYRAX_VERSION_MINOR 15
 #define TYRAX_VERSION_PATCH 0
+// 2.15.0: devlink phase 1 (docs/devlink.md) - a debug game under ps2link
+// loads devlink.irx (vendor/tyra/devlink) and reads the Remote Pad from a
+// mailbox the IOP DMAs the editor's UDP datagram into, instead of a host:
+// file round trip every 4th frame. Phase 2 (same version, unreleased): the
+// Live Debugger's command (TXDC) and report (SIF1 -> IOP slot -> TXDO chunks
+// -> editor writes bin/livedbg.bin) over devlink, PCSX2 cadence on a console.
+// Phases 3-5: DevLink::readFile/writeFile (RAM mirrors / segments) for Live
+// Link, Live Logic, livetex and the time machine; LOG lines via
+// TyraDebug::logSink; the IOP watchdog (TXWD). PS2-verified 2026-11-08.
+// Same version, later: the self-screenshot leaves through devlink too
+// (DevLink::writeFileOwned, banded VRAM readback) instead of freezing the
+// game for ~3 s of host: writes; so do vucap.bin and rendercost.txt. The
+// session's Receiver forwards bin/livedbg.cmd (CLI capture/profile reach a
+// console again), keeps one FileAssembler per file, and the IOP answers only
+// the TXHI sender. PS2: 34 ms readback, 1 MB in ~1.5 s (2026-11-10).
+// Live preview (Debugger > Screen): quarter-res pictures through the same
+// channel, GS-downscaled into the post-fx scratch buffer - ~20/s, 1.3 ms each.
+// Debugger > VU memory > Frame: bin/vuframe.bin, every VU1 chain of one frame
+// (vucap::loadFrame, --dump-vuframe); the chain decoder reads VIF streams in
+// referenced blocks.
+// A controller on the PC drives the Remote Pad (src/gamepad.cpp, Preferences >
+// Running games > Controller); the live preview pops out and goes fullscreen.
+// The frame yield (setFrameYield) stays off while devlink carries the
+// debugger's reports: 14 min of showcase + music clean on a PS2, one run.
 // 2.14.0: StaPip keeps the draws the general path used to take every frame
 // (docs/record-renderer.md, "Draws that stay on the general path";
 // architecture loop round 15): the REPEAT entry (a REPEAT bag under another

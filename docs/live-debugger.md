@@ -246,6 +246,16 @@ the ps2link file server on a console):
 | `bin/livedbg.cmd` | the editor, when the desired state changes | the full breakpoint list, halt / resume / step, node keys to force-fire, and the one-shot asks: a VU1 capture, a free-RAM measurement, a screenshot |
 | `bin/frame.tga` | the game, once per *Capture frame* | its own frame buffer, read back out of GS VRAM. A transport file: the editor decodes it and keeps the picture as `screenshots/frame-<date>-<time>.png` (see [devkit.md](devkit.md)) |
 
+**On a console (since 2.15.0) the first two travel through the IOP instead**
+([devlink.md](devlink.md)): the editor sends `livedbg.cmd` as a UDP datagram
+(and resends it every second), the IOP drops it into a mailbox in EE RAM, and
+the game hands each report to the IOP with one DMA; the IOP sends it back in
+chunks and the editor writes them into `bin/livedbg.bin` itself. Same bytes,
+same file on the PC, no `host:` round trip in the game's frame - and the
+cadence is PCSX2's 6 frames rather than 25. Only the boot snapshot and the
+one-shot asks (VU1 capture, screenshot, render cost, crash report) still use
+`host:` there.
+
 The first two are validated by an exact-size + footer-echo check on both ends, so
 a torn write is skipped rather than half-applied, and a command is applied only
 when its sequence number changes. The Runner deletes all three at build start: a
