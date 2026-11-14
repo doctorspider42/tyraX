@@ -314,6 +314,7 @@ add_executable(tyrax-editor
     src/primmesh.cpp
     src/physhull.cpp
     src/particletex.cpp
+    src/groundcover.cpp
     src/procgraph.cpp
     src/procgen.cpp
     src/procbake.cpp

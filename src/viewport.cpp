@@ -1134,10 +1134,15 @@ in vec4 vColor;
 in vec2 vUV;
 uniform int uUseTex;
 uniform sampler2D uTex;
+uniform float uAlphaCut;  // > 0: an opaque cutout (ground cover cards)
 out vec4 FragColor;
 void main() {
     vec4 tex = uUseTex != 0 ? texture(uTex, vUV) : vec4(1.0);
     FragColor = vColor * tex;
+    if (uAlphaCut > 0.0) {
+        if (FragColor.a < uAlphaCut) discard;
+        FragColor.a = 1.0;
+    }
 }
 )";
 
@@ -1776,6 +1781,7 @@ bool Viewport::init() {
     }
     uPartMvp_ = glGetUniformLocation(particleProgram_, "uMvp");
     uPartUseTex_ = glGetUniformLocation(particleProgram_, "uUseTex");
+    uPartAlphaCut_ = glGetUniformLocation(particleProgram_, "uAlphaCut");
     glGenVertexArrays(1, &particleVao_);
     glGenBuffers(1, &particleVbo_);
     glBindVertexArray(particleVao_);
@@ -1925,6 +1931,7 @@ void Viewport::setGrading(bool enabled, const CompiledGrading& g) {
 
 void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells,
                           const std::vector<float>& heights, int hmW, int hmD) {
+    gcDirty_ = true;  // ground cover stands on this terrain
     const bool sameTerrain = terrain_.width == terrain.width &&
                              terrain_.depth == terrain.depth && maxCells_ == maxCells;
     terrain_ = terrain;
@@ -1965,6 +1972,159 @@ float Viewport::terrainHeight(float x, float z) const {
     return h(ix + 1, iz + 1) +
            (1.0f - fz) * (h(ix + 1, iz) - h(ix + 1, iz + 1)) +
            (1.0f - fx) * (h(ix, iz + 1) - h(ix + 1, iz + 1));
+}
+
+void Viewport::setGroundCover(const std::vector<groundcover::Entry>& covers,
+                              float distanceMetres, float unitsPerMeter) {
+    const float upm = unitsPerMeter > 0.0f ? unitsPerMeter : 1.0f;
+    const float range = distanceMetres * upm;
+    bool same = covers.size() == gcCovers_.size() && range == gcRange_ && upm == gcUpm_;
+    for (size_t i = 0; same && i < covers.size(); ++i)
+        same = covers[i].layer == gcCovers_[i].layer && covers[i].cover == gcCovers_[i].cover;
+    if (same) return;
+    gcCovers_ = covers;
+    gcRange_ = range;
+    gcUpm_ = upm;
+    gcDirty_ = true;
+}
+
+// The game's card generator around the viewport camera: the same tiles, seeds,
+// composited weights and per-tile fade as TerrainGame::updateGroundCover, so
+// the preview shows the cards the console will draw (except under roads,
+// which the game also clears).
+void Viewport::drawGroundCover(const float* viewProj, const float* eye, const float* fwdP) {
+    if (gcCovers_.empty() || !particleProgram_ || !terrain_.enabled || hmW_ < 2 || hmD_ < 2)
+        return;
+    const float tile = groundcover::kTileMetres * gcUpm_;
+    const int ctx = (int)std::floor(eye[0] / tile), ctz = (int)std::floor(eye[2] / tile);
+    if (gcDirty_ || ctx != gcTx_ || ctz != gcTz_) {
+        gcDirty_ = false;
+        gcTx_ = ctx, gcTz_ = ctz;
+        struct G : groundcover::Ground {
+            const Viewport* v;
+            float height(float x, float z) const override { return v->terrainHeight(x, z); }
+            float weight(int layer, float x, float z) const override {
+                const float w = (float)v->terrain_.width, d = (float)v->terrain_.depth;
+                if (x < -w * 0.5f || x > w * 0.5f || z < -d * 0.5f || z > d * 0.5f) return 0.0f;
+                const int n = (int)v->terrainLayers_.size();
+                if (n <= 0 || v->splat_.size() != (size_t)v->hmW_ * v->hmD_ * n)
+                    return layer < 0 ? 1.0f : 0.0f;
+                float gx = (x + w * 0.5f) / w * (v->hmW_ - 1);
+                float gz = (z + d * 0.5f) / d * (v->hmD_ - 1);
+                gx = std::clamp(gx, 0.0f, v->hmW_ - 1.001f);
+                gz = std::clamp(gz, 0.0f, v->hmD_ - 1.001f);
+                const int ix = (int)gx, iz = (int)gz;
+                const float fx = gx - ix, fz = gz - iz;
+                float lw[32];
+                for (int l = 0; l < n && l < 32; ++l) {
+                    auto s = [&](int a, int b) {
+                        return (float)v->splat_[((size_t)b * v->hmW_ + a) * n + l];
+                    };
+                    const float s00 = s(ix, iz), s10 = s(ix + 1, iz);
+                    const float s01 = s(ix, iz + 1), s11 = s(ix + 1, iz + 1);
+                    lw[l] = (fx + fz <= 1.0f
+                                 ? s00 + fx * (s10 - s00) + fz * (s01 - s00)
+                                 : s11 + (1.0f - fz) * (s10 - s11) +
+                                       (1.0f - fx) * (s01 - s11)) *
+                            (1.0f / 255.0f);
+                }
+                return groundcover::compositeWeight(layer, lw, std::min(n, 32));
+            }
+        } g;
+        g.v = this;
+        int half = (int)std::ceil(gcRange_ / tile);
+        half = std::clamp(half, 1, 32);
+        const float band = gcRange_ * groundcover::kFadeBand;
+        const float ccx = (ctx + 0.5f) * tile, ccz = (ctz + 0.5f) * tile;
+        gcCards_.assign(gcCovers_.size(), {});
+        std::vector<groundcover::Card> tmp;
+        for (int dz = -half; dz <= half; ++dz)
+            for (int dx = -half; dx <= half; ++dx) {
+                const float ddx = dx * tile, ddz = dz * tile;
+                if (std::sqrt(ddx * ddx + ddz * ddz) - tile * 0.7072f >= gcRange_) continue;
+                for (size_t k = 0; k < gcCovers_.size(); ++k) {
+                    tmp.clear();
+                    groundcover::tileCards(ctx + dx, ctz + dz, (int)k, gcCovers_[k].cover,
+                                           gcCovers_[k].layer, tile, gcUpm_, g, tmp);
+                    for (groundcover::Card c : tmp) {
+                        // Each card fades by its own distance (the game's
+                        // packing): a ragged band, never a line.
+                        const float ex = c.x - ccx, ez = c.z - ccz;
+                        const float f = std::min(
+                            1.0f, (gcRange_ - std::sqrt(ex * ex + ez * ez)) / band);
+                        if (f <= 0.0f) continue;
+                        float s = (f * 1.3f - c.thin) * 4.0f;
+                        if (s <= 0.0f) continue;
+                        s = std::min(s, 1.0f);
+                        // The game's packing: the base stays where the full
+                        // card stands (sunk by a tenth of its height), the
+                        // fade only shrinks it. Card.y becomes the BASE.
+                        const float ground = c.y - c.halfH * 0.9f;
+                        c.y = ground - c.halfH * 0.2f;
+                        c.halfW *= s;
+                        c.halfH *= s;
+                        gcCards_[k].push_back(c);
+                    }
+                }
+            }
+    }
+
+    // Upright cards facing the camera around world up (the game's basis),
+    // swayed by the grass program's gusts (stapip_billboard_g_vu1.vclpp):
+    // wind along (0.8, 0.6), a wave every 4 tiles, 0.35 cycles a second, a
+    // parabolic sine. The game draws no per-card shade - the tint only.
+    const float k8 = 1.0f / (tile * 4.0f);
+    const float windT = (float)std::fmod(animClock_ * 0.35, 1024.0);
+    float rx = fwdP[2], rz = -fwdP[0];
+    const float rl = std::sqrt(rx * rx + rz * rz);
+    if (rl > 0.0001f) rx /= rl, rz /= rl;
+    else rx = 1.0f, rz = 0.0f;
+    glUseProgram(particleProgram_);
+    glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
+    glUniform1f(uPartAlphaCut_, 0.5f);
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+    glBindVertexArray(particleVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+    std::vector<float> buf;
+    for (size_t k = 0; k < gcCovers_.size(); ++k) {
+        const MaterialDraw* mat = materialDraw(groundcover::materialOf(gcCovers_[k].cover));
+        const uint32_t tex = mat ? mat->tex : 0;
+        if (!tex || gcCards_[k].empty()) continue;  // never a field of solid quads
+        const float* tint = gcCovers_[k].cover.tint;
+        const float windAmp = gcCovers_[k].cover.wind;
+        buf.clear();
+        buf.reserve(gcCards_[k].size() * 54);
+        for (const groundcover::Card& c : gcCards_[k]) {
+            const float hx = rx * c.halfW, hz = rz * c.halfW;
+            const float u0 = c.mirror ? 1.0f : 0.0f, u1 = 1.0f - u0;
+            const float h = c.halfH * 2.0f;
+            float ph = (c.x * 0.8f + c.z * 0.6f) * k8 + 1024.0f + windT;
+            ph = (ph - std::floor(ph)) * 2.0f - 1.0f;
+            const float sway = 4.0f * ph * (1.0f - std::fabs(ph)) * windAmp * h;
+            auto vert = [&](float sx, bool top, float u, float v) {
+                buf.insert(buf.end(),
+                           {c.x + hx * sx + (top ? 0.8f * sway : 0.0f),
+                            c.y + (top ? h : 0.0f),
+                            c.z + hz * sx + (top ? 0.6f * sway : 0.0f), tint[0], tint[1],
+                            tint[2], 1.0f, u, v});
+            };
+            vert(-1, false, u0, 1);
+            vert(1, false, u1, 1);
+            vert(1, true, u1, 0);
+            vert(-1, false, u0, 1);
+            vert(1, true, u1, 0);
+            vert(-1, true, u0, 0);
+        }
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)), buf.data(),
+                     GL_DYNAMIC_DRAW);
+        glUniform1i(uPartUseTex_, 1);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+    }
+    glUniform1f(uPartAlphaCut_, 0.0f);
+    glBindVertexArray(0);
+    glUseProgram(sceneProgActive_);
 }
 
 float Viewport::terrainLayerGrip(float x, float z,
@@ -2647,6 +2807,7 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
 
 void Viewport::updateTerrainRegion(const std::vector<float>& heights, float worldX,
                                    float worldZ, float radius) {
+    gcDirty_ = true;  // ground cover stands on this terrain
     if (!terrain_.enabled) return;  // nothing built, nothing to refresh
     if ((int)heights.size() != hmW_ * hmD_ || terrainChunkMeshes_.empty()) {
         heights_ = heights;
@@ -3817,6 +3978,7 @@ void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[
 
 void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
                                 const std::vector<uint8_t>& weights) {
+    gcDirty_ = true;  // ground cover stands on this terrain
     // No cheap equality check: callers send this on layer edits and scene
     // switches, both of which want the rebuild anyway.
     terrainLayers_ = layers;
@@ -4039,6 +4201,7 @@ void Viewport::setTerrainTint(float variation, float scaleWorld) {
 
 void Viewport::updateSplatRegion(const std::vector<uint8_t>& weights, float worldX,
                                  float worldZ, float radius) {
+    gcDirty_ = true;  // ground cover stands on this terrain
     splat_ = weights;
     if (terrainChunkMeshes_.empty()) {
         buildTerrainMesh();
@@ -7379,6 +7542,10 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                  usableHighlightCol_[1], usableHighlightCol_[2]);
         }
     }
+
+    // Ground cover (docs/ground-cover.md): opaque cutout cards, before the
+    // overlays.
+    drawGroundCover(viewProj.m, &eye.x, &camFwd.x);
 
     auto selectionMatrix = [&](const SceneObject& o) {
         float mn[3],mx[3];selectionBounds(o,mn,mx);

@@ -241,6 +241,10 @@ class StaPipCore {
     qbufferRenderer.setResidentClasses(mask);
   }
   u32 getResidentClasses() const { return qbufferRenderer.getResidentClasses(); }
+  /** TyraX addition: StaPipQBufferRenderer::setGrassProgram. */
+  void setGrassProgram(const bool& enabled) {
+    qbufferRenderer.setGrassProgram(enabled);
+  }
 
   /** TyraX addition: install a game-supplied VU1 microprogram over a built-in
    * slot (docs/vu-framework.md). Reachable from game code as

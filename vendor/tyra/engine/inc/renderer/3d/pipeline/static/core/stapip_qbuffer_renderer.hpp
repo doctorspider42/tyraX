@@ -864,6 +864,15 @@ class StaPipQBufferRenderer {
   void setResidentClasses(const u32& mask);
   const u32& getResidentClasses() const { return residentClasses; }
 
+  /** TyraX addition: the ground cover program (StaPipBillboardBag::grass,
+   * docs/ground-cover.md) joins the billboard family in the program set -
+   * resident when the whole set fits, swapped on demand with the billboards
+   * otherwise. Off by default: a game without ground cover keeps every word
+   * of micro memory. Call once at boot (a rebuild + upload, like
+   * setResidentClasses). */
+  void setGrassProgram(const bool& enabled);
+  bool getGrassProgram() const { return grassProgram; }
+
   /** TyraX addition: install a game-supplied microprogram over a built-in slot
    * and make it resident (docs/vu-framework.md). Rebuilds the program cache and
    * re-uploads it, so it is safe to call after init - and it must be, because a
@@ -1317,6 +1326,8 @@ class StaPipQBufferRenderer {
   StaPipProgramsRepository repository;
   /** TyraX addition: see setResidentClasses. */
   u32 residentClasses = StaPipClassAll;
+  /** TyraX addition: see setGrassProgram. */
+  bool grassProgram = false;
   /** TyraX addition: see setVuCustomEnabled. */
   bool vuCustomEnabled = false;
   float vuParams[4] = {0.0F, 0.0F, 0.0F, 0.0F};

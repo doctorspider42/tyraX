@@ -37,6 +37,7 @@
 // Modified by TyraX: particle billboard programs (centers -> quads on VU1).
 #include "./programs/billboard/stapip_billboard_c_vu1_program.hpp"
 #include "./programs/billboard/stapip_billboard_t_vu1_program.hpp"
+#include "./programs/billboard/stapip_billboard_g_vu1_program.hpp"
 
 namespace Tyra {
 
@@ -82,6 +83,7 @@ class StaPipProgramsRepository {
   // Modified by TyraX: particle billboard programs.
   StaPipBillboardCVU1Program billboardColor;
   StaPipBillboardTVU1Program billboardTexture;
+  StaPipBillboardGVU1Program billboardGrass;  // TyraX: ground cover
 
   /** Game-supplied replacements, indexed by StaPipProgramName. Null = use the
    * built-in member above. */

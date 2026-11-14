@@ -83,6 +83,8 @@ StaPipVU1Program* StaPipProgramsRepository::getProgram(
       return &billboardColor;
     case StaPipProgramName::StaPipBillboardTexture:
       return &billboardTexture;
+    case StaPipProgramName::StaPipBillboardGrass:
+      return &billboardGrass;
 
     default:
       TYRA_TRAP("Unknown VU1 program name");

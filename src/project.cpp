@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "groundcover.hpp"
 #include "history.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
@@ -1247,6 +1248,64 @@ static void readRoadJunctionsArray(const json::Value& arr,
     }
 }
 
+// Ground cover (docs/ground-cover.md): one object, written only when it
+// differs from the default so untouched projects resave byte-identically.
+static void writeGroundCover(std::ostream& json, const GroundCover& c) {
+    const GroundCover d;
+    json << "{ \"enabled\": " << (c.enabled ? "true" : "false");
+    if (!c.material.empty()) json << ", \"material\": \"" << c.material << "\"";
+    if (c.density != d.density) json << ", \"density\": " << fmtFloat(c.density);
+    if (c.width != d.width) json << ", \"width\": " << fmtFloat(c.width);
+    if (c.height != d.height) json << ", \"height\": " << fmtFloat(c.height);
+    if (c.sizeJitter != d.sizeJitter)
+        json << ", \"sizeJitter\": " << fmtFloat(c.sizeJitter);
+    if (c.wind != d.wind) json << ", \"wind\": " << fmtFloat(c.wind);
+    if (c.tint[0] != 1.0f || c.tint[1] != 1.0f || c.tint[2] != 1.0f)
+        json << ", \"tint\": [" << fmtFloat(c.tint[0]) << ", " << fmtFloat(c.tint[1])
+             << ", " << fmtFloat(c.tint[2]) << "]";
+    json << " }";
+}
+
+static void readGroundCover(const json::Value& v, GroundCover& c) {
+    c = GroundCover{};
+    if (v.type != json::Value::Type::Object) return;
+    if (const auto* x = v.find("enabled")) c.enabled = x->boolOr(false);
+    if (const auto* x = v.find("material")) c.material = x->stringOr("");
+    if (const auto* x = v.find("density"))
+        c.density = std::clamp((float)x->numberOr(3.0), 0.0f, 64.0f);
+    if (const auto* x = v.find("width"))
+        c.width = std::clamp((float)x->numberOr(0.5), 0.01f, 10.0f);
+    if (const auto* x = v.find("height"))
+        c.height = std::clamp((float)x->numberOr(0.4), 0.01f, 10.0f);
+    if (const auto* x = v.find("sizeJitter"))
+        c.sizeJitter = std::clamp((float)x->numberOr(0.35), 0.0f, 1.0f);
+    if (const auto* x = v.find("wind"))
+        c.wind = std::clamp((float)x->numberOr(0.12), 0.0f, 1.0f);
+    if (const auto* x = v.find("tint");
+        x && x->type == json::Value::Type::Array && x->arr.size() == 3)
+        for (int k = 0; k < 3; ++k)
+            c.tint[k] = std::clamp((float)x->arr[(size_t)k].numberOr(1.0), 0.0f, 2.0f);
+}
+
+// The scene half of ground cover (base cards + draw distance), shared by the
+// project file, the history file and the scenes section. `sep` is what goes
+// before each key (",\n      " in the project file, ", " elsewhere).
+static void writeSceneGroundCover(std::ostream& json, const SceneData& sc,
+                                  const char* sep) {
+    if (sc.terrainBaseCover != GroundCover{}) {
+        json << sep << "\"terrainBaseCover\": ";
+        writeGroundCover(json, sc.terrainBaseCover);
+    }
+    if (sc.groundCoverDistance != 16.0f)
+        json << sep << "\"groundCoverDistance\": " << fmtFloat(sc.groundCoverDistance);
+}
+
+static void readSceneGroundCover(const json::Value& js, SceneData& sc) {
+    if (const auto* v = js.find("terrainBaseCover")) readGroundCover(*v, sc.terrainBaseCover);
+    if (const auto* v = js.find("groundCoverDistance"))
+        sc.groundCoverDistance = std::clamp((float)v->numberOr(16.0), 2.0f, 200.0f);
+}
+
 // Paintable terrain layers (docs/terrain-painting.md). The per-texel splat
 // weights live in the terrain-<scene>.splat sidecar; only the layer list (a
 // name + .mtl material each) travels in the project / history JSON.
@@ -1259,6 +1318,10 @@ static void writeTerrainLayersArray(std::ostream& json,
              << fmtFloat(layers[i].scale);
         if (layers[i].stochastic) json << ", \"stochastic\": true";
         if (layers[i].grip != 1.0f) json << ", \"grip\": " << fmtFloat(layers[i].grip);
+        if (layers[i].cover != GroundCover{}) {
+            json << ", \"cover\": ";
+            writeGroundCover(json, layers[i].cover);
+        }
         json << " }";
     }
     json << "]";
@@ -1280,6 +1343,7 @@ static void readTerrainLayersArray(const json::Value& arr,
             if (l.grip < 0.1f) l.grip = 0.1f;
             if (l.grip > 1.5f) l.grip = 1.5f;
         }
+        if (const auto* v = jl.find("cover")) readGroundCover(*v, l.cover);
         layers.push_back(l);
     }
 }
@@ -2152,6 +2216,7 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
         }
         if (sc.terrainBaseStochastic)
             json << ",\n      \"terrainBaseStochastic\": true";
+        writeSceneGroundCover(json, sc, ",\n      ");
         if (sc.terrainTintVariation > 0.0f)
             json << ",\n      \"terrainTintVariation\": "
                  << fmtFloat(sc.terrainTintVariation)
@@ -5201,6 +5266,7 @@ bool applyScenesLayout(Project& p, const std::string& body) {
             readTerrainLayersArray(*tl, sc.terrainLayers);
         if (const auto* v = js.find("terrainBaseStochastic"))
             sc.terrainBaseStochastic = v->boolOr(false);
+        readSceneGroundCover(js, sc);
         if (const auto* v = js.find("terrainTintVariation"))
             sc.terrainTintVariation = (float)v->numberOr(0.0);
         if (const auto* v = js.find("terrainTintScale")) {
@@ -8180,6 +8246,7 @@ std::string load(Project& out, const std::string& projectDir) {
                 readTerrainLayersArray(*tl, sc.terrainLayers);
             if (const auto* v = js.find("terrainBaseStochastic"))
                 sc.terrainBaseStochastic = v->boolOr(false);
+            readSceneGroundCover(js, sc);
             if (const auto* v = js.find("terrainTintVariation"))
                 sc.terrainTintVariation = (float)v->numberOr(0.0);
             if (const auto* v = js.find("terrainTintScale")) {
@@ -8397,6 +8464,7 @@ std::string saveHistory(const Project& p, const History& h) {
             }
             if (sc.terrainBaseStochastic)
                 json << ", \"terrainBaseStochastic\": true";
+            writeSceneGroundCover(json, sc, ", ");
             if (sc.terrainTintVariation > 0.0f)
                 json << ", \"terrainTintVariation\": "
                      << fmtFloat(sc.terrainTintVariation)
@@ -8442,6 +8510,7 @@ std::string loadHistory(const Project& p, History& h) {
                     readTerrainLayersArray(*tl, sc.terrainLayers);
                 if (const auto* v = js.find("terrainBaseStochastic"))
                     sc.terrainBaseStochastic = v->boolOr(false);
+                readSceneGroundCover(js, sc);
                 if (const auto* v = js.find("terrainTintVariation"))
                     sc.terrainTintVariation = (float)v->numberOr(0.0);
                 if (const auto* v = js.find("terrainTintScale")) {
@@ -9034,6 +9103,13 @@ void clampStartScene(Project& p) {
 
 std::string refreshGenerated(const Project& p) {
     if (auto err = syncVuFramework(p); !err.empty()) return err;
+    // The built-in grass tuft a ground cover without its own material draws
+    // with (docs/ground-cover.md) - before codegen and the texture bake, which
+    // both expect it on disk. Written only when its bytes change.
+    if (groundcover::projectUsesBuiltin(p)) {
+        std::string err;
+        if (!groundcover::writeBuiltin(p.dir, &err)) return err;
+    }
     // ONCE. generate() is the whole codegen pass - every scene table, every
     // microprogram, every bake-derived header - and it also PRINTS the
     // diagnostics a build reports (a skipped procedural volume, a look that

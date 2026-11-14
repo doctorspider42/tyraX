@@ -42,6 +42,10 @@ a Mac) finds any command, object or window by name.
   plane is optional; what "no terrain" means in the editor and in the game.
 - [Terrain painting](terrain-painting.md) — blending grass/rock/path layers
   with a brush, two-pass GS splatting, stochastic tiling.
+- [Ground cover](ground-cover.md) — grass cards that grow by themselves on a
+  painted terrain material: seeded per 2 m tile, a ring around the camera,
+  packed into VU1 billboard blocks, and a ragged fade at the edge instead of a
+  line. Settings, how it works, measured cost and limits.
 - [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
   heightmap samples, stitched so no crack shows; what makes a big map drawable.
 - [Roads](roads.md) — spline streets glued to the terrain: a handful of authored

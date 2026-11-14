@@ -5618,8 +5618,15 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 15
+#define TYRAX_VERSION_MINOR 16
 #define TYRAX_VERSION_PATCH 0
+// 2.16.0: ground cover (docs/ground-cover.md) - grass-like cards that grow by
+// themselves on a painted terrain material (base or layer): seeded per world
+// tile, stood on the drawn terrain triangle, kept in a ring of tiles around
+// the camera and thinned out card by card towards the ring's edge. Drawn on
+// the PS2 by a dedicated VU1 grass program (one qword per card in, a 4-vertex
+// strip out, wind sway on VU1) in packed 4x4-tile blocks, refilled only for
+// the tiles the camera walks into.
 // 2.15.0: devlink phase 1 (docs/devlink.md) - a debug game under ps2link
 // loads devlink.irx (vendor/tyra/devlink) and reads the Remote Pad from a
 // mailbox the IOP DMAs the editor's UDP datagram into, instead of a host:
@@ -6605,7 +6612,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v129 (docs/model-pipeline.md, "Drawn instanced"): SceneObject::
 // drawInstanced ("drawInstanced" on the object, written only when true).
 // Missing = drawn as before. Additive; no migration.
-inline constexpr int kFormatVersion = 129;
+// v130 (docs/ground-cover.md): TerrainLayer::cover ("cover" on a terrain
+// layer), SceneData::terrainBaseCover + groundCoverDistance
+// ("terrainBaseCover" / "groundCoverDistance" on a scene), each written only
+// when it differs from the default. Missing = no cover, which is all an older
+// project could mean. Additive; no migration.
+inline constexpr int kFormatVersion = 130;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

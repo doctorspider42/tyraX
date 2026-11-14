@@ -346,7 +346,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   shadow volumes that carve a big model's real outline (the build decimates a
   shadow proxy for it), not its bounding box.
 - **[Terrain](docs/terrain.md)** — optional per scene, sculpted with a brush and
-  [painted with blended material layers](docs/terrain-painting.md).
+  [painted with blended material layers](docs/terrain-painting.md), with
+  [ground cover](docs/ground-cover.md): grass that grows by itself on a painted
+  material and thins out with distance.
 - **Models** — [one importer](docs/model-import.md) for `.obj`/`.glb`/`.fbx`
   with a preview, pack splitting and optimization; `.obj` compiled into a binary
   [`.tmdl` with distance LOD](docs/model-pipeline.md), and

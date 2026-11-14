@@ -133,6 +133,9 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     // A clip program reads the strip but emits a fan-triangulated LIST.
     if (buffer->stripped && !isClipProgram(name))
       bufferPrim.type = PRIM_TRIANGLE_STRIP;
+    // Modified by TyraX: the grass program emits one 4-vertex strip per card,
+    // broken between cards by ADC (stapip_billboard_g_vu1.vclpp).
+    if (name == StaPipBillboardGrass) bufferPrim.type = PRIM_TRIANGLE_STRIP;
     packet2_utils_gs_add_prim_giftag(packet, &bufferPrim,
                                      gsVertexCount(buffer->size), reglist,
                                      reglistCount, 0);

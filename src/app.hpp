@@ -1505,6 +1505,7 @@ private:
     // Push the active scene's resolved terrain layers + per-vertex weights to
     // the viewport (two-pass splatting preview). Empty layers clear the passes.
     void rebakeSplatPreview();
+    void applyGroundCoverToViewport();  // docs/ground-cover.md
     // Generate + upload a stochastic-tiling supertile for a terrain texture to
     // the viewport's cache; returns the synthetic texture key + tiling factor.
     std::string uploadStochPreview(const std::string& srcRel, float& factor);

@@ -86,6 +86,14 @@ A `SceneObject` carries only `materialPath`; a material feature rides in the Wav
 - Animated `.glb`/`.fbx` take a `.mtl` override via `objparser::applyMaterialOverride`, which carries only `Kd` + texture; refl/Ke have no `.tskl`/VU1 slot - say so in docs rather than fake it.
 - `mateditor_ui.cpp` (~3.9k): Material Editor - `.mtl` load/save, paint-layer stack + its own undo, raytraced map bake, UV validator, texture hot reload (`liveTexNotify`, devkit-and-live-channels.md).
 
+## Ground cover (docs/ground-cover.md)
+
+- Cards are seeded per 2 m world tile (`groundcover::tileSeed` = `gcSeed`), six `prand` draws per candidate in a fixed order; the host generator (`tileCards`, viewport preview) and the game's `fill` lambda in `updateGroundCover` are twins - change both.
+- Drawn by the engine's grass program (`StaPipBillboardBag::grass`): the packed array is ONE qword per card `(x, base y, z, size * grow * mirror)`; the colour/ST arrays are one-element placeholders the asserts want. Sway is VU1-side (`windAmp`, `windTime` per bag); the viewport mirrors the wave in `drawGroundCover`.
+- Runtime shape: a toroidal ring of tile slots (card data per slot, plain vectors) + PACKED draw arrays per cover, re-packed only when the ring changes (camera tile change or a budgeted fill). Each 4x4-tile block is one billboard bag bound with `bindFrom` into the packed arrays, frustum-tested by its world box in `renderGroundCover`. Sending every ring slot (zero-weight quads included) cost 3.3x more on the fixture (1.56 vs 0.47 ms) - the cost is per VU1 package, not per visible card.
+- The packed arrays are sized once at scene load; they must never reallocate under a bound bag. They are rewritten in the update phase (`updateParticles` calls `updateGroundCover` first, which is also how owned main loops get it).
+- Codegen emits `GROUND_COVER_*` (texture_data.gen.hpp) only when a scene has a cover; the runtime is `#ifdef GROUND_COVER_ON`. Cover materials are appended LAST in `collectMaterialPaths` so other projects keep their indices; both heads' residency passes keep them loaded.
+
 ## Particles (docs/particles.md)
 
 - `particletex.cpp/.hpp` (~280+50): host-only deterministic `generate(ParticleTexGen)` -> smoke/flame/glow RGBA, PREMULTIPLIED (an additive bag ignores texture alpha, so the shape lives in RGB); `writeAssets` writes `res/materials/particles/<stem>.png` + a one-material `.mtl`, each only when bytes change. `particle_ui.cpp` (~480): Tools > Particle Editor (window key `particles`).

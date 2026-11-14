@@ -43,6 +43,7 @@
 #include "physhull.hpp"
 #include "primmesh.hpp"
 #include "particletex.hpp"
+#include "groundcover.hpp"
 #include "platform.hpp"
 #include "prefab.hpp"
 #include "procgen.hpp"  // baked instanced volumes are evaluated for their table
@@ -430,6 +431,14 @@ static std::vector<std::string> collectMaterialPaths(const Project& p) {
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const SceneObject& c : project::emitterLayerObjects(p, o)) scan(c);
+    // Ground cover cards (docs/ground-cover.md), last of all for the same
+    // reason.
+    for (const SceneData& sc : p.scenes)
+        for (const groundcover::Entry& e : groundcover::covers(sc)) {
+            const std::string m = groundcover::materialOf(e.cover);
+            if (std::find(paths.begin(), paths.end(), m) == paths.end())
+                paths.push_back(m);
+        }
     return paths;
 }
 
@@ -2858,6 +2867,11 @@ class TerrainGame : public Tyra::Game {
   void buildParticles();
   void buildParticleSystem(int objectIndex, int layer);  // layer -1 = own
   void updateParticles();
+  // Ground cover (docs/ground-cover.md): the ring of grass cards around the
+  // camera. Empty bodies unless the project has a cover (GROUND_COVER_ON).
+  void buildGroundCover();
+  void updateGroundCover();
+  void renderGroundCover();
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
@@ -5075,6 +5089,11 @@ class TerrainGame : public Tyra::Game {
   void buildParticles();
   void buildParticleSystem(int objectIndex, int layer);  // layer -1 = own
   void updateParticles();
+  // Ground cover (docs/ground-cover.md): the ring of grass cards around the
+  // camera. Empty bodies unless the project has a cover (GROUND_COVER_ON).
+  void buildGroundCover();
+  void updateGroundCover();
+  void renderGroundCover();
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
@@ -34933,6 +34952,72 @@ static std::string textureDataHeader(const Project& p) {
         out << "};\n"
             << "constexpr bool TERRAIN_LAYER_GRIP_ANY = "
             << (anyGrip ? "true" : "false") << ";\n";
+    }
+    // Ground cover (docs/ground-cover.md): emitted only when a scene has a
+    // cover, so a project without one regenerates byte-identically and the
+    // runtime compiles to empty bodies (#ifdef GROUND_COVER_ON).
+    {
+        size_t maxCovers = 0;
+        std::vector<std::vector<groundcover::Entry>> perScene;
+        for (const SceneData& sc : p.scenes) {
+            perScene.push_back(groundcover::covers(sc));
+            maxCovers = std::max(maxCovers, perScene.back().size());
+        }
+        if (maxCovers > 0) {
+            const float upm =
+                p.settings.unitsPerMeter > 0.0f ? p.settings.unitsPerMeter : 1.0f;
+            const float tile = groundcover::kTileMetres * upm;
+            const auto mats = collectMaterialPaths(p);
+            auto matIndex = [&](const std::string& path) {
+                for (size_t i = 0; i < mats.size(); ++i)
+                    if (mats[i] == path) return (int)i;
+                return -1;
+            };
+            out << "\n#define GROUND_COVER_ON 1\n"
+                << "struct GroundCoverDef {\n"
+                << "  int layer;     // painted layer it grows on, -1 = the base\n"
+                << "  int material;  // MATERIAL_PATHS index of the card\n"
+                << "  int cards;     // card slots per tile\n"
+                << "  float halfW, halfH, jitter;  // world units\n"
+                << "  float wind;    // top sway, fraction of the card height\n"
+                << "  float tint[3];\n"
+                << "};\n"
+                << "constexpr float GROUND_COVER_TILE = " << floatLit(tile) << ";\n"
+                << "constexpr int GROUND_COVER_COUNTS[" << p.scenes.size() << "] = {";
+            for (size_t si = 0; si < p.scenes.size(); ++si)
+                out << (si ? ", " : "") << perScene[si].size();
+            out << "};\n"
+                << "constexpr float GROUND_COVER_RANGES[" << p.scenes.size() << "] = {";
+            for (size_t si = 0; si < p.scenes.size(); ++si)
+                out << (si ? ", " : "")
+                    << floatLit(p.scenes[si].groundCoverDistance * upm);
+            out << "};\n"
+                << "constexpr GroundCoverDef GROUND_COVER_DEFS[" << p.scenes.size()
+                << "][" << maxCovers << "] = {\n";
+            for (size_t si = 0; si < p.scenes.size(); ++si) {
+                out << "    {";
+                for (size_t k = 0; k < maxCovers; ++k) {
+                    out << (k ? ", " : "");
+                    if (k >= perScene[si].size()) {
+                        out << "{-1, -1, 0, 0, 0, 0, 0, {1, 1, 1}}";
+                        continue;
+                    }
+                    const groundcover::Entry& e = perScene[si][k];
+                    const GroundCover& c = e.cover;
+                    out << "{" << e.layer << ", "
+                        << matIndex(groundcover::materialOf(c)) << ", "
+                        << groundcover::cardsPerTile(c, tile, upm) << ", "
+                        << floatLit(c.width * upm * 0.5f) << ", "
+                        << floatLit(c.height * upm * 0.5f) << ", "
+                        << floatLit(c.sizeJitter) << ", " << floatLit(c.wind)
+                        << ", {" << floatLit(c.tint[0])
+                        << ", " << floatLit(c.tint[1]) << ", " << floatLit(c.tint[2])
+                        << "}}";
+                }
+                out << "},\n";
+            }
+            out << "};\n";
+        }
     }
     out << "\n}  // namespace " << ns << "\n";
     return out.str();

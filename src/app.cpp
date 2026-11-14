@@ -3,6 +3,7 @@
 #include "app_internal.hpp"
 #include "roadgen.hpp"
 #include "hudanim.hpp"
+#include "groundcover.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -18391,6 +18392,7 @@ void App::applyProjectToViewport() {
     // Painted terrain layers: push the resolved layer set + weights (empty
     // layers = the plain single-material terrain above).
     rebakeSplatPreview();
+    applyGroundCoverToViewport();
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
     viewport_.setSkyTexture(
         rs.skyTexture.empty() ? std::string() : project_.filePath(rs.skyTexture),
@@ -18955,6 +18957,116 @@ void App::drawTerrainWindow() {
     }
     ImGui::Spacing();
 
+    // --- ground cover (docs/ground-cover.md) ----------------------------------
+    ui::Caption("Ground cover", "grass cards, PS2 VU1");
+    {
+        bool coverChanged = false;  // a committed edit (switch, combo, released slider)
+        bool coverLive = false;     // a dragged value: preview only
+        // One surface's cover: a switch, then its controls while it is on.
+        auto coverControls = [&](const char* surface, GroundCover& c) {
+            ImGui::PushID(surface);
+            char label[96];
+            std::snprintf(label, sizeof(label), "%s", surface);
+            if (ui::Switch(label, &c.enabled)) {
+                coverChanged = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Grow cards wherever this surface shows. They are seeded per\n"
+                                  "2 m tile, so nothing is placed or stored by hand.");
+            if (c.enabled) {
+                ImGui::Indent(fs * 0.8f);
+                ui::InspectorRows rows(scaled(84), scaled(110));
+                const char* builtin = "Built-in grass tuft";
+                std::string cur = c.material.empty() ? builtin : c.material;
+                if (cur.rfind("res/", 0) == 0) cur = cur.substr(4);
+                ImGui::SetNextItemWidth(-fs * 0.8f);
+                if (ui::BeginCombo("Card", cur.c_str())) {
+                    if (ImGui::Selectable(builtin, c.material.empty()) && !c.material.empty()) {
+                        c.material.clear();
+                        coverChanged = true;
+                    }
+                    for (const std::string& rel : listMaterialAssets()) {
+                        if (rel == groundcover::kBuiltinMtl) continue;
+                        if (ImGui::Selectable(rel.substr(4).c_str(), rel == c.material) &&
+                            rel != c.material) {
+                            c.material = rel;
+                            coverChanged = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The card's texture: alpha 0 is cut away (no blending, no\n"
+                                      "sorting). Leave a clear border row at the top and bottom.");
+                auto slider = [&](const char* name, float* v, float lo, float hi, const char* fmt,
+                                  const char* tip, ImGuiSliderFlags flags = 0) {
+                    ImGui::SetNextItemWidth(-fs * 0.8f);
+                    if (ui::SliderFloat(name, v, lo, hi, fmt, flags)) coverLive = true;
+                    if (ImGui::IsItemDeactivatedAfterEdit()) coverChanged = true;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+                };
+                slider("Density", &c.density, 0.1f, 16.0f, "%.1f / m²",
+                       "Cards per square metre where the surface fully shows.\n"
+                       "Each card is one quad on VU1.",
+                       ImGuiSliderFlags_Logarithmic);
+                slider("Width", &c.width, 0.05f, 3.0f, "%.2f m", "Card width.");
+                slider("Height", &c.height, 0.05f, 3.0f, "%.2f m", "Card height.");
+                slider("Size spread", &c.sizeJitter, 0.0f, 1.0f, "%.2f",
+                       "Random size variation per card.");
+                slider("Wind", &c.wind, 0.0f, 0.5f, "%.2f",
+                       "How far the tops sway in the gusts, as a fraction of the\n"
+                       "card height. Computed on VU1: free on the EE.");
+                ImGui::SetNextItemWidth(-fs * 0.8f);
+                if (ImGui::ColorEdit3("Tint", c.tint, ImGuiColorEditFlags_NoInputs)) coverLive = true;
+                if (ImGui::IsItemDeactivatedAfterEdit()) coverChanged = true;
+                ImGui::Unindent(fs * 0.8f);
+            }
+            ImGui::PopID();
+        };
+        coverControls("On the base", sc.terrainBaseCover);
+        for (int i = 0; i < nLayers; ++i) {
+            char surface[96];
+            std::snprintf(surface, sizeof(surface), "On %s##cov%d",
+                          sc.terrainLayers[(size_t)i].name.c_str(), i);
+            coverControls(surface, sc.terrainLayers[(size_t)i].cover);
+        }
+        const std::vector<groundcover::Entry> list = groundcover::covers(sc);
+        if (!list.empty()) {
+            ui::InspectorRows rows(scaled(84), scaled(110));
+            ImGui::SetNextItemWidth(-fs * 0.8f);
+            if (ui::SliderFloat("Draw distance", &sc.groundCoverDistance, 4.0f, 60.0f, "%.0f m"))
+                coverLive = true;
+            if (ImGui::IsItemDeactivatedAfterEdit()) coverChanged = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How far from the camera cards are drawn; the outer quarter\n"
+                                  "thins out card by card.");
+            // What the console pays: every card slot of the ring goes to VU1
+            // each frame (unused ones as empty quads).
+            const float upm = project_.settings.unitsPerMeter > 0.0f
+                                  ? project_.settings.unitsPerMeter : 1.0f;
+            const float tile = groundcover::kTileMetres * upm;
+            const int half = std::clamp((int)std::ceil(sc.groundCoverDistance * upm / tile), 1, 32);
+            const int slots = (2 * half + 1) * (2 * half + 1);
+            int cards = 0;
+            for (const groundcover::Entry& e : list)
+                cards += slots * groundcover::cardsPerTile(e.cover, tile, upm);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::Text("%d card slots on VU1 · %.0f KB RAM", cards, cards * 80.0f / 1024.0f);
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The ring of tiles around the camera, every cover together.\n"
+                                  "VU1 expands each slot every frame; lower the density or the\n"
+                                  "distance if the frame is VU1-bound.");
+        } else if (!sc.terrain.enabled) {
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextWrapped("This scene has no terrain - cover grows on terrain only.");
+            ImGui::PopStyleColor();
+        }
+        if (coverLive || coverChanged) applyGroundCoverToViewport();
+        if (coverChanged) commitChange();
+    }
+    ImGui::Spacing();
+
     // --- what the blend costs ---------------------------------------------------
     ui::Caption("Resolution & cost");
     {
@@ -19014,6 +19126,25 @@ std::string App::uploadStochPreview(const std::string& srcRel, float& factor) {
     const std::string key = "@stoch:" + srcRel;
     viewport_.updateTexturePixels(key, w, h, px.data());
     return key;
+}
+
+// Ground cover preview (docs/ground-cover.md): the active scene's enabled
+// covers. A cover on the built-in tuft needs the texture on disk first.
+void App::applyGroundCoverToViewport() {
+    const SceneData& sc = project_.active();
+    const std::vector<groundcover::Entry> list = groundcover::covers(sc);
+    for (const groundcover::Entry& e : list)
+        if (e.cover.material.empty()) {
+            const bool had = std::filesystem::exists(
+                std::filesystem::path(project_.dir) / groundcover::kBuiltinPng);
+            std::string err;
+            if (!groundcover::writeBuiltin(project_.dir, &err))
+                std::fprintf(stderr, "ground cover: %s\n", err.c_str());
+            else if (!had)
+                viewport_.invalidateAssets();  // a miss on the old path is cached
+            break;
+        }
+    viewport_.setGroundCover(list, sc.groundCoverDistance, project_.settings.unitsPerMeter);
 }
 
 void App::rebakeSplatPreview() {

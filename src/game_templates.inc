@@ -7575,6 +7575,13 @@ void TerrainGame::applyLayerResidency() {
       if (d.material >= 0 && d.material + f < (int)materialNeed.size())
         materialNeed[d.material + f] = 1;
   }
+#ifdef GROUND_COVER_ON
+  // Ground cover cards (docs/ground-cover.md) draw with their own material.
+  for (int k = 0; k < GROUND_COVER_COUNTS[currentScene]; ++k) {
+    const int mi = GROUND_COVER_DEFS[currentScene][k].material;
+    if (mi >= 0 && mi < (int)materialNeed.size()) materialNeed[mi] = 1;
+  }
+#endif
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
   // Painted terrain layers keep their tiled textures resident with the scene.
@@ -10011,6 +10018,13 @@ void TerrainGame::applyLayerResidency() {
       if (d.material >= 0 && d.material + f < (int)materialNeed.size())
         materialNeed[d.material + f] = 1;
   }
+#ifdef GROUND_COVER_ON
+  // Ground cover cards (docs/ground-cover.md) draw with their own material.
+  for (int k = 0; k < GROUND_COVER_COUNTS[currentScene]; ++k) {
+    const int mi = GROUND_COVER_DEFS[currentScene][k].material;
+    if (mi >= 0 && mi < (int)materialNeed.size()) materialNeed[mi] = 1;
+  }
+#endif
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
   // Painted terrain layers keep their tiled textures resident with the scene.
@@ -11977,6 +11991,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   dynamicReceiverGeneration_ = sceneGeneration;
 
   buildParticles();
+  buildGroundCover();
 
   // A sound bank lasts until the scene ends.
   for (int b = 0; b < soundbank::BANK_COUNT; ++b) soundbank::setBank(b, false);
@@ -12356,7 +12371,378 @@ void TerrainGame::buildParticleSystem(int i, int layer) {
 
 
 
+// ---- Ground cover (docs/ground-cover.md) ----------------------------------
+// Grass-like cards grown from the painted terrain. Every tile of the world
+// grid (GROUND_COVER_TILE units) seeds its own cards from a hash of its
+// coordinates, so nothing is stored per card and a tile always grows the same
+// cards. Only a ring of g_gcN x g_gcN tiles around the camera lives in memory
+// - a toroidal slot table, one tile per slot - and a tile is generated only
+// when it crosses into the draw distance, a few a frame.
+//
+// What VU1 gets is NOT the ring: whenever the ring changes (the camera enters
+// a new tile, a fill lands) the cards that are actually drawn are packed into
+// one draw array per cover, grouped by kGcBlock x kGcBlock-tile blocks, and
+// each block is a bag of the engine's GRASS program (StaPipBillboardBag::grass,
+// stapip_billboard_g_vu1.vclpp) with its own world box: ONE qword per card
+// (x, ground y, z, signed size), the quad, its sway in the wind and the cull
+// all built on VU1, out as a 4-vertex strip (twice the cards a VU1 package
+// holds compared with the particle program, which took three qwords in and
+// sent 6 vertices out per card).
+// A frame in which the camera stays inside its tile costs the EE one AABB
+// frustum test per block and the submits of the blocks in view - no card is
+// touched. Empty slots, the square's corners and the thinned-out edge never
+// reach VU1 (the first cut sent every slot: 196 packages, 1.56 ms on the
+// fixture).
+//
+// Towards the ring's edge cards thin out one by one: each card's fade comes
+// from its OWN distance to the camera tile's centre, and each has a random
+// threshold it grows out of the ground past - so the edge is a ragged band
+// as wide as a quarter of the distance, never a line (the first cut faded
+// per 2-unit tile and showed the tile steps).
+// The editor viewport grows the same cards (src/groundcover.cpp, tileCards):
+// keep the seed, the draw order and the formulas in sync.
+#ifdef GROUND_COVER_ON
+namespace gcover {
+constexpr int kGcBlock = 4;        // tiles per block edge (one bag each)
+constexpr int kGcFillsPerFrame = 6;  // tiles generated per frame once running
+struct GcBlock {
+  int first = 0, count = 0;
+  Vec4 mn, mx;  // world box of the block's cards
+  std::unique_ptr<StaPipBag> bag;
+  std::unique_ptr<StaPipColorBag> colorBag;
+  std::unique_ptr<StaPipTextureBag> texBag;
+};
+struct GcRing {
+  int cap = 0;               // card slots per tile
+  std::vector<Vec4> base;    // per slot card: x, ground y, z, thin threshold
+  std::vector<float> size;   // per slot card: size factor (sign = mirror); 0 = none
+  BagArray<Vec4> pos;        // packed cards, block-major: x, y, z, signed size
+  // The grass program reads neither colours nor texture coordinates, but a
+  // billboard bag must carry both channels: one element each, never written.
+  BagArray<Vec4> wts;
+  BagArray<Color> col;
+  std::vector<GcBlock> blocks;
+  std::unique_ptr<StaPipInfoBag> info;
+  std::unique_ptr<StaPipBillboardBag> basis;
+  Texture* texture = nullptr;
+};
+inline std::vector<GcRing> g_gcRings;
+inline int g_gcN = 0;                         // ring edge in tiles (odd)
+inline int g_gcBlocks = 0;                    // block edge count
+inline int g_gcScene = -1;
+inline std::vector<int> g_gcSlotTx, g_gcSlotTz;  // tile a slot holds
+inline std::vector<signed char> g_gcSlotFade;    // 1 = tile reaches into range
+inline std::vector<unsigned char> g_gcSlotFull;  // 1 = cards generated
+inline int g_gcCamTx = 0x7FFFFFFF, g_gcCamTz = 0x7FFFFFFF;
+inline bool g_gcPending = false, g_gcFresh = false;
+inline float g_gcWindTime = 0.0F;  // gust phase, cycles
+
+inline unsigned int gcSeed(int tx, int tz, int cover) {
+  unsigned int h = (unsigned int)tx * 73856093u ^ (unsigned int)tz * 19349663u ^
+                   (unsigned int)(cover + 1) * 83492791u;
+  h ^= h >> 13;
+  h *= 0x5bd1e995u;
+  h ^= h >> 15;
+  return h;
+}
+inline int gcWrap(int v, int n) {
+  const int m = v % n;
+  return m < 0 ? m + n : m;
+}
+}  // namespace gcover
+#endif
+
+void TerrainGame::buildGroundCover() {
+#ifdef GROUND_COVER_ON
+  using namespace gcover;
+  g_gcRings.clear();
+  g_gcScene = currentScene;
+  const int sc = currentScene;
+  const int count = GROUND_COVER_COUNTS[sc];
+  if (count <= 0 || !TERRAIN_ENABLEDS[sc]) return;
+  int half = (int)ceilf(GROUND_COVER_RANGES[sc] / GROUND_COVER_TILE);
+  if (half < 1) half = 1;
+  if (half > 32) half = 32;
+  g_gcN = half * 2 + 1;
+  g_gcBlocks = (g_gcN + kGcBlock - 1) / kGcBlock;
+  const int slots = g_gcN * g_gcN;
+  g_gcSlotTx.assign(slots, 0x7FFFFFFF);
+  g_gcSlotTz.assign(slots, 0x7FFFFFFF);
+  g_gcSlotFade.assign(slots, 0);
+  g_gcSlotFull.assign(slots, 0);
+  g_gcCamTx = g_gcCamTz = 0x7FFFFFFF;
+  g_gcPending = g_gcFresh = true;
+  // The engine's grass program joins the VU1 program set (a no-op after the
+  // first scene that has cover).
+  stapip.core.setGrassProgram(true);
+  g_gcRings.resize(count);
+  for (int k = 0; k < count; ++k) {
+    const GroundCoverDef& D = GROUND_COVER_DEFS[sc][k];
+    GcRing& r = g_gcRings[k];
+    r.cap = D.cards;
+    const int n = slots * r.cap;
+    r.base.assign(n, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    r.size.assign(n, 0.0F);
+    // Sized once: the packed array never reallocates under a bound bag.
+    r.pos.assign(n > 0 ? n : 1, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    r.wts.assign(1, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    r.col.assign(1, Color(128.0F, 128.0F, 128.0F, 128.0F));
+    r.texture = nullptr;
+    r.info = std::make_unique<StaPipInfoBag>();
+    r.info->model = &model;
+    r.info->shadingType = TyraShadingGouraud;
+    // Billboard bags cull per quad on VU1 (see buildParticleSystem); the
+    // block boxes above that are tested on the EE before any submit.
+    r.info->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    r.info->fullClipChecks = false;
+    // Opaque cutout: z-tested AND z-writing, the alpha test drops the texels
+    // between the blades - no sorting, no blending.
+    r.info->zTestType = PipelineZTest_Standard;
+    r.basis = std::make_unique<StaPipBillboardBag>();
+    r.basis->grass = true;
+    r.basis->grassHalfWidth = D.halfW;
+    r.basis->grassHeight = D.halfH * 2.0F;
+    r.basis->windAmp = D.wind;
+    // Gusts roll across the field along the wind, one every ~8 m.
+    r.basis->windDir = Vec4(0.8F, 0.0F, 0.6F, 0.0F);
+    const float k8 = 1.0F / (GROUND_COVER_TILE * 4.0F);
+    r.basis->windWave = Vec4(0.8F * k8, 0.0F, 0.6F * k8, 0.0F);
+    r.basis->tint = Color(D.tint[0] * 128.0F, D.tint[1] * 128.0F,
+                          D.tint[2] * 128.0F, 128.0F);
+    r.blocks.clear();
+    r.blocks.resize(g_gcBlocks * g_gcBlocks);
+    for (GcBlock& b : r.blocks) {
+      b.colorBag = std::make_unique<StaPipColorBag>();
+      b.texBag = std::make_unique<StaPipTextureBag>();
+      b.texBag->texture = nullptr;
+      b.bag = std::make_unique<StaPipBag>();
+      b.bag->info = r.info.get();
+      b.bag->color = b.colorBag.get();
+      b.bag->lighting = nullptr;
+      b.bag->billboard = r.basis.get();
+      b.bag->texture = b.texBag.get();
+      r.pos.bindFrom(b.bag, 0);
+      r.col.bind(b.colorBag);
+      r.wts.bind(b.texBag);
+      b.bag->count = 0;
+    }
+  }
+#endif
+}
+
+void TerrainGame::updateGroundCover() {
+#ifdef GROUND_COVER_ON
+  using namespace gcover;
+  if (g_gcRings.empty() || g_gcScene != currentScene) return;
+  const int sc = currentScene;
+  // The wind keeps blowing behind a pause menu: it is scenery, not gameplay.
+  g_gcWindTime += g_frameDt * 0.35F;
+  if (g_gcWindTime > 1024.0F) g_gcWindTime -= 1024.0F;
+  // The card texture streams in with the scene's materials.
+  for (int k = 0; k < (int)g_gcRings.size(); ++k)
+    if (!g_gcRings[k].texture) {
+      const int mi = GROUND_COVER_DEFS[sc][k].material;
+      if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture) {
+        g_gcRings[k].texture = gameMaterials[mi].texture;
+        for (GcBlock& b : g_gcRings[k].blocks) b.texBag->texture = g_gcRings[k].texture;
+      }
+    }
+  const float tile = GROUND_COVER_TILE;
+  const int ctx = (int)floorf(cameraPosition.x / tile);
+  const int ctz = (int)floorf(cameraPosition.z / tile);
+  if (ctx != g_gcCamTx || ctz != g_gcCamTz) {
+    g_gcCamTx = ctx, g_gcCamTz = ctz;
+    g_gcPending = true;
+  }
+  if (!g_gcPending) return;
+
+  const float range = GROUND_COVER_RANGES[sc];
+  const float band = range * 0.25F;
+  const int half = g_gcN / 2;
+  const int layerN = TERRAIN_LAYER_COUNTS[sc];
+  const unsigned char* w8 = TERRAIN_SPLAT_TABLES[sc];
+  const int hw = HM_WS[sc], hd = HM_DS[sc];
+  // Raw painted weight of every layer at (x, z), on the two drawn triangles
+  // of the cell (terrainGripAt's sampling).
+  float lw[32];
+  auto layerWeights = [&](float x, float z) {
+    float gx = (x - HM_ORIGIN_XS[sc]) / HM_STEP_XS[sc];
+    float gz = (z - HM_ORIGIN_ZS[sc]) / HM_STEP_ZS[sc];
+    if (gx < 0.0F) gx = 0.0F;
+    if (gz < 0.0F) gz = 0.0F;
+    if (gx > hw - 1.001F) gx = hw - 1.001F;
+    if (gz > hd - 1.001F) gz = hd - 1.001F;
+    const int ix = (int)gx, iz = (int)gz;
+    const float fx = gx - ix, fz = gz - iz;
+    const size_t r0 = ((size_t)iz * hw + ix) * layerN;
+    const size_t r1 = ((size_t)(iz + 1) * hw + ix) * layerN;
+    for (int l = 0; l < layerN && l < 32; ++l) {
+      const float s00 = w8[r0 + l], s10 = w8[r0 + layerN + l];
+      const float s01 = w8[r1 + l], s11 = w8[r1 + layerN + l];
+      lw[l] = (fx + fz <= 1.0F
+                   ? s00 + fx * (s10 - s00) + fz * (s01 - s00)
+                   : s11 + (1.0F - fz) * (s10 - s11) + (1.0F - fx) * (s01 - s11)) *
+              (1.0F / 255.0F);
+    }
+  };
+  // Inside the world the terrain covers (the heightmap clamps beyond it).
+  const float minX = HM_ORIGIN_XS[sc], minZ = HM_ORIGIN_ZS[sc];
+  const float maxX = minX + HM_STEP_XS[sc] * (hw - 1);
+  const float maxZ = minZ + HM_STEP_ZS[sc] * (hd - 1);
+
+  auto fill = [&](int slot, int tx, int tz) {
+    for (int k = 0; k < (int)g_gcRings.size(); ++k) {
+      GcRing& r = g_gcRings[k];
+      const GroundCoverDef& D = GROUND_COVER_DEFS[sc][k];
+      unsigned int s = gcSeed(tx, tz, k);
+      const int j0 = slot * r.cap;
+      for (int i = 0; i < r.cap; ++i) {
+        const float u = prand(s), v = prand(s), thin = prand(s);
+        const float sz = prand(s), acc = prand(s), sh = prand(s);
+        const float x = ((float)tx + u) * tile;
+        const float z = ((float)tz + v) * tile;
+        r.size[j0 + i] = 0.0F;
+        if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
+        float w = 1.0F;
+        if (layerN > 0 && w8 != nullptr) {
+          layerWeights(x, z);
+          w = D.layer < 0 ? 1.0F : lw[D.layer];
+          for (int l = D.layer + 1; l < layerN && l < 32; ++l) w *= 1.0F - lw[l];
+        } else if (D.layer >= 0) {
+          w = 0.0F;
+        }
+        if (acc >= w) continue;
+        // No card through a road: the strip sits on the terrain, the card
+        // would poke through it.
+        if (roadSurfaceAt(x, z) > -1.0e29F) continue;
+        (void)sh;  // the per-card shade draw keeps the twin's sequence
+        const float m = 1.0F + D.jitter * (sz - 0.5F);
+        // Every other card mirrored: free variety for one texture.
+        r.size[j0 + i] = (i & 1) ? -m : m;
+        // A little sunk, so a card on a slope never shows a gap under it.
+        r.base[j0 + i] = Vec4(x, terrainHeightAtScene(sc, x, z) - D.halfH * m * 0.2F,
+                              z, thin);
+      }
+    }
+    g_gcSlotTx[slot] = tx, g_gcSlotTz[slot] = tz;
+    g_gcSlotFull[slot] = 1;
+  };
+
+  int budget = g_gcFresh ? 0x7FFFFFFF : kGcFillsPerFrame;
+  bool left = false;
+  for (int dz = -half; dz <= half; ++dz) {
+    for (int dx = -half; dx <= half; ++dx) {
+      const int tx = ctx + dx, tz = ctz + dz;
+      const int slot = gcWrap(tx, g_gcN) + gcWrap(tz, g_gcN) * g_gcN;
+      // In range when the tile's nearest point is (its centre minus half a
+      // diagonal): the cards decide one by one at packing.
+      const float ddx = (float)dx * tile, ddz = (float)dz * tile;
+      const int level = sqrtf(ddx * ddx + ddz * ddz) - tile * 0.7072F < range ? 1 : 0;
+      if (g_gcSlotTx[slot] != tx || g_gcSlotTz[slot] != tz) {
+        g_gcSlotTx[slot] = tx, g_gcSlotTz[slot] = tz;
+        g_gcSlotFull[slot] = 0;  // a tile from the far side: forget it
+      }
+      g_gcSlotFade[slot] = (signed char)level;
+      if (level == 0 || g_gcSlotFull[slot]) continue;
+      if (budget <= 0) {
+        left = true;
+        continue;
+      }
+      --budget;
+      fill(slot, tx, tz);
+    }
+  }
+  g_gcPending = left;
+  g_gcFresh = false;
+
+  // Pack what is drawn, block by block (blocks are aligned to the ring, so a
+  // block's tiles are the camera tile's neighbours dx, dz in its range).
+  const float ccx = ((float)ctx + 0.5F) * tile, ccz = ((float)ctz + 0.5F) * tile;
+  const float invBand = 1.0F / band;
+  for (GcRing& r : g_gcRings) {
+    const float halfW = r.basis->grassHalfWidth, height = r.basis->grassHeight;
+    const float windAmp = r.basis->windAmp;
+    int out = 0;
+    for (int bz = 0; bz < g_gcBlocks; ++bz) {
+      for (int bx = 0; bx < g_gcBlocks; ++bx) {
+        GcBlock& b = r.blocks[bz * g_gcBlocks + bx];
+        b.first = out;
+        float mnx = 1.0e30F, mny = 1.0e30F, mnz = 1.0e30F;
+        float mxx = -1.0e30F, mxy = -1.0e30F, mxz = -1.0e30F;
+        for (int dz = -half + bz * kGcBlock; dz < -half + (bz + 1) * kGcBlock && dz <= half; ++dz) {
+          for (int dx = -half + bx * kGcBlock; dx < -half + (bx + 1) * kGcBlock && dx <= half; ++dx) {
+            const int slot = gcWrap(ctx + dx, g_gcN) + gcWrap(ctz + dz, g_gcN) * g_gcN;
+            const int level = g_gcSlotFade[slot];
+            if (level == 0 || !g_gcSlotFull[slot]) continue;
+            const int j0 = slot * r.cap;
+            for (int i = 0; i < r.cap; ++i) {
+              const float s = r.size[j0 + i];
+              if (s == 0.0F) continue;
+              const Vec4& p = r.base[j0 + i];
+              const float ex0 = p.x - ccx, ez0 = p.z - ccz;
+              float f = (range - sqrtf(ex0 * ex0 + ez0 * ez0)) * invBand;
+              if (f <= 0.0F) continue;
+              if (f > 1.0F) f = 1.0F;
+              float g = (f * 1.3F - p.w) * 4.0F;
+              if (g <= 0.0F) continue;
+              if (g > 1.0F) g = 1.0F;
+              r.pos[out] = Vec4(p.x, p.y, p.z, s * g);
+              ++out;
+              const float as = fabsf(s) * g;
+              // The box reaches as far as the card can sway.
+              const float ex = (halfW + height * windAmp) * as;
+              if (p.x - ex < mnx) mnx = p.x - ex;
+              if (p.x + ex > mxx) mxx = p.x + ex;
+              if (p.z - ex < mnz) mnz = p.z - ex;
+              if (p.z + ex > mxz) mxz = p.z + ex;
+              if (p.y < mny) mny = p.y;
+              if (p.y + height * as > mxy) mxy = p.y + height * as;
+            }
+          }
+        }
+        b.count = out - b.first;
+        b.mn = Vec4(mnx, mny, mnz, 1.0F);
+        b.mx = Vec4(mxx, mxy, mxz, 1.0F);
+        r.pos.bindFrom(b.bag, (std::size_t)b.first);
+        b.bag->count = (u32)b.count;
+      }
+    }
+  }
+#endif
+}
+
+void TerrainGame::renderGroundCover() {
+#ifdef GROUND_COVER_ON
+  using namespace gcover;
+  if (g_gcRings.empty() || g_gcScene != currentScene) return;
+  // Cards stand upright: the camera's right flattened onto the ground and
+  // world up (the rain streaks' basis), aimed at the camera this pass draws
+  // with - centres are view-independent.
+  const Vec4 fwd = cameraLookAt - cameraPosition;
+  float rx = fwd.z, rz = -fwd.x;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 0.0001F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  const Plane* planes = engine->renderer.core.renderer3D.frustumPlanes.getAll();
+  for (GcRing& r : g_gcRings) {
+    if (!r.texture) continue;  // never a field of solid quads
+    r.basis->right = Vec4(rx, 0.0F, rz, 0.0F);
+    r.basis->windTime = g_gcWindTime;
+    for (GcBlock& b : r.blocks) {
+      if (b.count <= 0) continue;
+      if (Tyra::CoreBBox::frustumCheckAABB(planes, b.mn, b.mx) ==
+          Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+        continue;
+      renderWorldBag(b.bag.get());
+    }
+  }
+#endif
+}
+
 void TerrainGame::updateParticles() {
+  // Ground cover rides this call so projects that own their main loop get it
+  // too: it follows the camera even while gameplay is paused.
+  updateGroundCover();
   if (particles.empty() || !g_particlesOn) return;  // Set Particles switch
   // Paused: leave every billboard bag exactly as it was last built - the
   // scene render still draws them, so particles hang frozen behind the menu.
@@ -28180,6 +28566,9 @@ void TerrainGame::renderScene() {
   // need no per-object bookkeeping at all, only a distance test and a submit.
   { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
   { const u32 ct=costStart(); renderProcInstances(); costEnd("Instances",-1,ct); }
+  // Ground cover (docs/ground-cover.md): opaque alpha-cutout cards, one bag
+  // per cover over the camera's ring of tiles.
+  { const u32 ct=costStart(); renderGroundCover(); costEnd("Ground_cover",-1,ct); }
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();

@@ -82,7 +82,9 @@ const u16 StaPipQBufferRenderer::buffersCount = 32;
 namespace {
 // Modified by TyraX: 57 packet qwords before the transient REF payloads were
 // made inline, plus 4 MVP, 3 light-matrix, 3 direction and 1 colour qwords.
-constexpr u16 kObjectDataPacketSize = 68;
+// Modified by TyraX: 68 -> 72 - the grass program's per-mesh block (3 + 2
+// qwords in two unpacks instead of the particle basis' 2 in one).
+constexpr u16 kObjectDataPacketSize = 72;
 constexpr u16 kSubmissionBatchSize = 4;
 constexpr u16 kQBufferCommandCapacity = 32;  // keep with buffersCount
 constexpr u16 kWorstBagPacketSize =
@@ -102,7 +104,7 @@ bool isTexturedProgram(const StaPipProgramName name) {
          name == StaPipClipTextureDirLights ||
          name == StaPipClipTextureColor || name == StaPipCullTextureEnv ||
          name == StaPipAsIsTextureEnv || name == StaPipClipTextureEnv ||
-         name == StaPipBillboardTexture;
+         name == StaPipBillboardTexture || name == StaPipBillboardGrass;
 }
 
 void recordGsPacket(StaPipTelemetry* telemetry, StaPipVU1Program* program,
@@ -1856,7 +1858,34 @@ void StaPipQBufferRenderer::sendObjectData(
   // bags never carry lighting (asserted in StaPipCore::render). Swapping
   // this basis and re-rendering the same bag draws the same centers for
   // another view (e.g. a portal's virtual camera).
-  if (bag->billboard != nullptr) {
+  if (bag->billboard != nullptr && bag->billboard->grass) {
+#if TYRA_STAPIP_STAMP
+    stampOk = false;
+#endif
+    // Added by TyraX: ground cover cards (stapip_billboard_g_vu1.vclpp). The
+    // phase gets 1024 added so the program's truncating fraction never sees
+    // a negative number (dot(xz, wave) stays far above -1024 on any map).
+    const StaPipBillboardBag* g = bag->billboard;
+    float ph = g->windTime - floorf(g->windTime);
+    {
+      alignas(16) const float gb[12] = {
+          g->right.x,        0.0F,           g->right.z,
+          0.0F,              g->grassHalfWidth, g->grassHeight,
+          4.0F * g->windAmp, 1024.0F + ph,   g->windDir.x,
+          0.0F,              g->windDir.z,   0.0F};
+      emitUnpack(objectDataPacket, VU1_BILLBOARD_BASIS_ADDR, gb, 3);
+    }
+    {
+      alignas(16) u64 rgbaq[2] = {
+          GS_SET_RGBAQ((u8)g->tint.r, (u8)g->tint.g, (u8)g->tint.b,
+                       (u8)g->tint.a, 0x3F800000),
+          GS_REG_RGBAQ};
+      alignas(16) float wq[8] = {g->windWave.x, 0.0F, g->windWave.z, 0.0F,
+                                 0.0F, 0.0F, 0.0F, 0.0F};
+      memcpy(&wq[4], rgbaq, sizeof(rgbaq));
+      emitUnpack(objectDataPacket, 12, wq, 2);
+    }
+  } else if (bag->billboard != nullptr) {
 #if TYRA_STAPIP_STAMP
     stampOk = false;
 #endif
@@ -1988,7 +2017,7 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // as_is twin - and a class the project never draws can be dropped to buy
   // micro memory for a program the user wrote. Every class is kept unless a
   // game says otherwise, so this is the old hardcoded ten by default.
-  VU1Program* programs[12];  // ten class programs + the two billboards
+  VU1Program* programs[13];  // ten class programs + the billboards (+ grass)
   u32 count = 0;
   const struct {
     u32 bit;
@@ -2020,16 +2049,18 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // ceiling falls back to the old separate packet, swapped in on demand.
   // Decided on every rebuild, because overrides and setResidentClasses change
   // the set's size at run time.
-  VU1Program* billboardPrograms[2] = {
+  // Modified by TyraX: the ground cover program (setGrassProgram) rides with
+  // the billboard family - resident or swapped together.
+  VU1Program* billboardPrograms[3] = {
       repository.getProgram(StaPipBillboardColor),
-      repository.getProgram(StaPipBillboardTexture)};
+      repository.getProgram(StaPipBillboardTexture),
+      repository.getProgram(StaPipBillboardGrass)};
+  const u32 billboardCount = grassProgram ? 3 : 2;
   billboardsResident = programSetWords(programs, count) +
-                           programSetWords(billboardPrograms, 2) <=
+                           programSetWords(billboardPrograms, billboardCount) <=
                        path1->getDrawFinishAddr();
-  if (billboardsResident) {
-    programs[count++] = billboardPrograms[0];
-    programs[count++] = billboardPrograms[1];
-  }
+  if (billboardsResident)
+    for (u32 b = 0; b < billboardCount; ++b) programs[count++] = billboardPrograms[b];
   programsPacket = path1->createProgramsCache(programs, count, 0);
 
   // createProgramsCache assigns each program's micro-memory address, so the
@@ -2042,9 +2073,12 @@ void StaPipQBufferRenderer::setProgramsCache() {
   }
   if (!billboardsResident)
     billboardProgramsPacket =
-        path1->createProgramsCache(billboardPrograms, 2, 0);
+        path1->createProgramsCache(billboardPrograms, billboardCount, 0);
   TYRA_LOG("StaPip VU1 program set: ", count, " programs, billboards ",
-           billboardsResident ? "resident" : "swapped on demand");
+           billboardsResident ? "resident" : "swapped on demand",
+           grassProgram ? " (with ground cover)" : "", ", ",
+           programSetWords(programs, count), " of ",
+           path1->getDrawFinishAddr(), " words");
 }
 
 // TyraX addition: see the header. Safe to call at run time - a level that stops
@@ -2059,6 +2093,19 @@ void StaPipQBufferRenderer::setResidentClasses(const u32& mask) {
   DrawEpochs::globalsChanged();  // Modified by TyraX: stamp records
   if (programsPacket == nullptr) return;  // init() will build the right set
 
+  packet2_free(programsPacket);
+  setProgramsCache();
+  uploadPrograms();
+  clearLastProgramName();
+}
+
+// TyraX addition: see the header.
+void StaPipQBufferRenderer::setGrassProgram(const bool& enabled) {
+  if (enabled == grassProgram) return;
+  flushPendingPacket();
+  grassProgram = enabled;
+  DrawEpochs::globalsChanged();
+  if (programsPacket == nullptr) return;  // init() will build the right set
   packet2_free(programsPacket);
   setProgramsCache();
   uploadPrograms();
@@ -6678,6 +6725,8 @@ StaPipVU1Program* StaPipQBufferRenderer::getAsIsProgramByBag(
 
   // Modified by TyraX: billboard bags always use the billboard programs
   // (per-quad culling happens on VU1; there is no as_is/clip variant).
+  if (programType == StaPipVU1BillboardGrass)  // TyraX: ground cover
+    return getProgramByName(StaPipBillboardGrass);
   if (programType == StaPipVU1BillboardTexture)
     return getProgramByName(StaPipBillboardTexture);
   else if (programType == StaPipVU1BillboardColor)
@@ -6701,6 +6750,8 @@ StaPipVU1Program* StaPipQBufferRenderer::getClipProgramByBag(
   auto programType = getDrawProgramTypeByBag(bag);
 
   // Modified by TyraX: billboard bags always use the billboard programs.
+  if (programType == StaPipVU1BillboardGrass)  // TyraX: ground cover
+    return getProgramByName(StaPipBillboardGrass);
   if (programType == StaPipVU1BillboardTexture)
     return getProgramByName(StaPipBillboardTexture);
   else if (programType == StaPipVU1BillboardColor)
@@ -6747,6 +6798,8 @@ StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByParams(
 StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByType(
     const StaPipProgramType& programType) {
   // Modified by TyraX: billboard bags always use the billboard programs.
+  if (programType == StaPipVU1BillboardGrass)  // TyraX: ground cover
+    return getProgramByName(StaPipBillboardGrass);
   if (programType == StaPipVU1BillboardTexture)
     return getProgramByName(StaPipBillboardTexture);
   else if (programType == StaPipVU1BillboardColor)
@@ -6769,6 +6822,8 @@ StaPipProgramType StaPipQBufferRenderer::getDrawProgramTypeByBag(
   // Modified by TyraX: particle billboards - the vertex slot carries
   // centers, the ST slot the per-particle basis weights. The texture bag is
   // always present (params channel); a real image selects the T variant.
+  if (bag->billboard != nullptr && bag->billboard->grass)
+    return StaPipVU1BillboardGrass;  // TyraX: ground cover cards
   if (bag->billboard != nullptr)
     return bag->texture->texture != nullptr ? StaPipVU1BillboardTexture
                                             : StaPipVU1BillboardColor;

@@ -4,6 +4,20 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Ground cover: what is left (2026-11-14)
+
+- Measure on a real PS2 (the numbers in docs/ground-cover.md are PCSX2's
+  synchronized profile): 3 and 10 cards / m² at 16 m.
+- Bend the cards away from the player in the grass program (player xz per
+  mesh, an unnormalised push with a 1 - d^2/r^2 falloff needs no sqrt).
+- The grass program is ~110 words of micro memory: a project whose set is
+  near the 2042 ceiling swaps the billboard family on demand. Measure that
+  case if such a project gets ground cover.
+- Light the cards: at least the day/night ambient and the terrain shade under
+  each card.
+- Hide cards under roads in the editor preview too (the game does).
+- Cover on meshes (bake explicit points on the host, same draw path).
+
 ## devlink: what is left (2026-11-08)
 
 All five phases are in and verified on a PS2 (docs/devlink.md). Left:

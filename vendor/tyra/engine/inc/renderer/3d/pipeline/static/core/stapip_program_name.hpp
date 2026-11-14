@@ -45,6 +45,8 @@ enum StaPipProgramName {
   // StaPipQBufferRenderer::ensureProgramSet.
   StaPipBillboardColor,
   StaPipBillboardTexture,
+  // Added by TyraX: ground cover cards (StaPipBillboardBag::grass).
+  StaPipBillboardGrass,
 };
 
 }  // namespace Tyra

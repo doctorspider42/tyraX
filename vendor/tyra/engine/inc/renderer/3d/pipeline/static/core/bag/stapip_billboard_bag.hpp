@@ -11,6 +11,7 @@
 #pragma once
 
 #include "math/vec4.hpp"
+#include "renderer/models/color.hpp"
 
 namespace Tyra {
 
@@ -37,11 +38,35 @@ namespace Tyra {
 class StaPipBillboardBag {
  public:
   StaPipBillboardBag() : right(1.0F, 0.0F, 0.0F, 0.0F),
-                         up(0.0F, 1.0F, 0.0F, 0.0F) {}
+                         up(0.0F, 1.0F, 0.0F, 0.0F),
+                         windDir(1.0F, 0.0F, 0.0F, 0.0F),
+                         windWave(0.0F, 0.0F, 0.0F, 0.0F),
+                         tint(128.0F, 128.0F, 128.0F, 128.0F) {}
   ~StaPipBillboardBag() {}
 
   Vec4 right;
   Vec4 up;
+
+  /**
+   * Added by TyraX: ground cover cards (docs/ground-cover.md). Set, and the
+   * bag draws with the GRASS program instead of the particle one:
+   *  - `vertices` carries ONE qword per card: (x, ground y, z, s), s = the
+   *    card's size factor, its sign mirroring the texture;
+   *  - the texture bag must hold the card image (its coordinates are not
+   *    read) and the colour bag is not read either - the tint below is;
+   *  - `right` is the camera right flattened onto the ground; `up` unused.
+   * Fields below are per mesh. Requires
+   * StaPipQBufferRenderer::setGrassProgram(true) (StaPipCore forwards it) so
+   * the program joins the VU1 program set.
+   */
+  bool grass = false;
+  float grassHalfWidth = 0.25F;  // world units, scaled by |s|
+  float grassHeight = 0.4F;      // world units, scaled by |s|
+  float windAmp = 0.0F;          // top sway, fraction of the card height
+  float windTime = 0.0F;         // gust phase in cycles (any range)
+  Vec4 windDir;                  // xz, unit; y/w ignored
+  Vec4 windWave;                 // xz: gust wave vector, cycles per unit
+  Color tint;                    // 128 = 1.0
 };
 
 }  // namespace Tyra

@@ -88,6 +88,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `savebake.cpp/.hpp` | 1.07k | Memory-card icon/save bakes | game-screens-menus-text |
 | `staticbatch.cpp/.hpp`, `staticbatchdisk.cpp` | 830 + 170 | Host twin of static batching | runtime-rendering-and-meshes |
 | `particletex.cpp/.hpp` | 330 | Procedural particle textures | runtime-rendering-and-meshes |
+| `groundcover.cpp/.hpp` | 260 | Ground cover: built-in tuft texture, cover list, the host card generator (twin of the game's `updateGroundCover` fill) | runtime-rendering-and-meshes |
 | `modelproxy.cpp/.hpp` | 125 | Footprint-prism visual proxy | runtime-rendering-and-meshes |
 | `treeimpostor.cpp`, `modelimpostor.cpp`, `impostorbake.hpp`, `impostorgpu.cpp/.hpp` | 190 + 60 + 30 + 220 | Impostor capture (CPU rasterizer, OBJ adapter, optional GPU) | runtime-rendering-and-meshes |
 | `decalproj.cpp/.hpp` | 580 | Projected-decal geometry | lighting-and-bakes |

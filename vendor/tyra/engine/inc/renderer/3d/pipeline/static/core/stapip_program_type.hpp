@@ -24,6 +24,8 @@ enum StaPipProgramType {
   // VU1 (see StaPipBillboardBag).
   StaPipVU1BillboardColor,
   StaPipVU1BillboardTexture,
+  // Added by TyraX: ground cover cards (StaPipBillboardBag::grass).
+  StaPipVU1BillboardGrass,
 };
 
 }  // namespace Tyra

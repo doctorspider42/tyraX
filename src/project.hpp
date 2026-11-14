@@ -34,6 +34,34 @@ struct TerrainConfig {
     bool enabled = true;
 };
 
+// Ground cover (docs/ground-cover.md): grass-like cards that grow by
+// themselves wherever a terrain material is painted - the base terrain or one
+// of its layers. Nothing is placed by hand and nothing is stored per card: the
+// game seeds every card from its world tile (a hash), stands it on the drawn
+// terrain triangle, keeps only a ring of tiles around the camera and thins the
+// ring's edge out card by card. Sizes are METRES (converted through
+// ProjectSettings::unitsPerMeter at codegen).
+struct GroundCover {
+    bool enabled = false;
+    // Card texture (.mtl, project-relative "res/..."). "" = the built-in grass
+    // tuft (groundcover::kBuiltinMtl, written by the build when used).
+    std::string material;
+    float density = 3.0f;     // cards per square metre where fully painted
+    float width = 0.5f;       // card size, metres
+    float height = 0.4f;
+    float sizeJitter = 0.35f; // 0..1: random size spread per card
+    float tint[3] = {1.0f, 1.0f, 1.0f};  // multiplies the texture
+    float wind = 0.12f;       // top sway in gusts, fraction of the card height
+};
+
+inline bool operator==(const GroundCover& a, const GroundCover& b) {
+    return a.enabled == b.enabled && a.material == b.material &&
+           a.density == b.density && a.width == b.width && a.height == b.height &&
+           a.sizeJitter == b.sizeJitter && a.wind == b.wind && a.tint[0] == b.tint[0] &&
+           a.tint[1] == b.tint[1] && a.tint[2] == b.tint[2];
+}
+inline bool operator!=(const GroundCover& a, const GroundCover& b) { return !(a == b); }
+
 // One paintable terrain layer above the base (the scene's terrain material).
 // `material` is a res-relative .mtl, resolved through project::resolveTerrainMaterial
 // so a layer inherits the same texture / Kd tint / tiling as the base terrain.
@@ -57,11 +85,13 @@ struct TerrainLayer {
     // multiplier on top of each vehicle's Off-road grip wherever the layer is
     // painted, blended by its weight. 1 = the bare terrain; mud ~0.5.
     float grip = 1.0f;
+    // Cards that grow wherever this layer is painted (docs/ground-cover.md).
+    GroundCover cover;
 };
 
 inline bool operator==(const TerrainLayer& a, const TerrainLayer& b) {
     return a.name == b.name && a.material == b.material && a.scale == b.scale &&
-           a.stochastic == b.stochastic && a.grip == b.grip;
+           a.stochastic == b.stochastic && a.grip == b.grip && a.cover == b.cover;
 }
 
 enum class PrimitiveType {
@@ -3522,6 +3552,11 @@ struct SceneData {
     // variation = amplitude 0..1 (0 = off), scale = patch size in world units.
     float terrainTintVariation = 0.0f;
     float terrainTintScale = 24.0f;
+    // Ground cover (docs/ground-cover.md): the cards growing on the BASE
+    // terrain material (layers carry their own), and how far from the camera
+    // any cover of this scene is drawn (metres; the outer quarter thins out).
+    GroundCover terrainBaseCover;
+    float groundCoverDistance = 16.0f;
 
     // Per-scene overrides of the project's scene-visual settings. `settings`
     // holds this scene's values; `overrides` says which categories are active.
@@ -3560,6 +3595,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            a.terrainBaseStochastic == b.terrainBaseStochastic &&
            a.terrainTintVariation == b.terrainTintVariation &&
            a.terrainTintScale == b.terrainTintScale &&
+           a.terrainBaseCover == b.terrainBaseCover &&
+           a.groundCoverDistance == b.groundCoverDistance &&
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
            a.loadingScreen == b.loadingScreen &&

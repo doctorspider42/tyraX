@@ -1,0 +1,210 @@
+; _____        ____   ___
+;   |     \/   ____| |___|
+;   |     |   |   \  |   |
+;---------------------------------------------------------------
+; Copyright 2022, tyra - https://github.com/h4570/tyra
+; Licensed under Apache License 2.0
+; Added by TyraX: ground cover cards (grass) on VU1 (docs/ground-cover.md).
+;
+;---------------------------------------------------------------
+; ONE input qword per card: (x, ground y, z, s). s = the card's size
+; factor (the grow-in of the fade folded in); its SIGN mirrors the
+; texture. Everything else is per mesh (StaPipBillboardBag::grass):
+;   4  (right.x, 0, right.z, 0)  camera right flattened on the ground
+;   5  (halfW, height, 4 * windAmp, time)  time = 1024 + phase in cycles
+;   6  (windDir.x, 0, windDir.z, 0)
+;   12 (wave.x, 0, wave.z, 0)  the gust wave vector, cycles per unit
+;   13 an A+D qword: RGBAQ = the tint with Q = 1.0
+; Each card is an upright quad on the drawn ground point, its top swayed
+; along windDir by amp * height * sin(2 pi (dot(xz, wave) + time)), a
+; parabolic sine (4 g (1 - |g|), g = 2 frac - 1) - smooth, no EFU.
+;
+; Output is a TRIANGLE STRIP of 4 vertices per card, ST + XYZF2 only
+; (8 qwords a card instead of the particle program's 18): the colour and
+; Q = 1.0 ride ONE RGBAQ written before the prim tag, so texturing is
+; affine - fine for upright cards. The first two vertices of every card
+; carry ADC, which breaks the strip between cards (the GS never kicks
+; the bridging triangles); a card with any corner outside the raster
+; window / depth range gets ADC on all four, exactly like the particle
+; program's per-quad cull. The prim giftag (PRIM = strip, NLOOP = 4 x
+; cards, ST + XYZF2) is built on the EE (StaPipBillboardGVU1Program).
+; The tag block is the standard nine qwords plus one (set, RGBAQ) pair:
+; eleven, which getMaxVertCount reserves.
+;---------------------------------------------------------------
+
+.syntax new
+.name StaPipVU1Billboard_G
+.vu
+.init_vf_all
+.init_vi_all
+
+#include "src/renderer/3d/pipeline/shared/vcl_sml.i"
+#include "src/renderer/3d/pipeline/shared/tyra_macros.i"
+#include "inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
+
+--enter
+--endenter
+
+#vuprog StaPipVU1BillboardG
+
+    ResetClipFlags{ }
+    MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
+    LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
+    MakeTyraAdcMask{ adcMask }
+
+    ; directions (w = 0) -> clip space, once per mesh. World up is the
+    ; mvp's second column, used directly in the loop.
+    lq      gRight,     4(vi00)
+    lq      gWindDir,   6(vi00)
+    MatrixMultiplyVector{ clipR, mvp, gRight }
+    MatrixMultiplyVector{ clipW, mvp, gWindDir }
+
+    ; strip corner STs: v0 bottom-left, v1 bottom-right, v2 top-left,
+    ; v3 top-right (row 0 of the texture is its top)
+    move    st0,        vf00
+    add.y   st0,        vf00,       vf00[w]
+    move    st1,        vf00
+    add.xy  st1,        vf00,       vf00[w]
+    move    st2,        vf00
+    move    st3,        vf00
+    add.x   st3,        vf00,       vf00[w]
+
+begin:
+    xtop buffer
+    LoadTyraBufferTags{ scale, primTag, buffer }
+
+    LoadTyraStaticData{ gifSetTag }
+    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
+    lq      rgbaqTag,   13(vi00)
+
+    iaddiu  vertexData,     buffer,         VU1_STAPIP_VERT_DATA_ADDR
+    ilw.w   vertexCount,    0(buffer)
+    iadd    kickAddress,    vertexData,     vertexCount
+    iaddiu  destAddress,    kickAddress,    0
+
+    sq      gifSetTag,              0(destAddress)
+    sq      testsTag,               1(destAddress)
+    sq      gifSetTag,              2(destAddress)
+    sq      lodGifTag,              3(destAddress)
+    sq      gifSetTag,              4(destAddress)
+    sq      texBufferClutGifTag,    5(destAddress)
+    sq      gifSetTag,              6(destAddress)
+    sq      alphaGifTag,            7(destAddress)
+    sq      gifSetTag,              8(destAddress)
+    sq      rgbaqTag,               9(destAddress)
+    sq      primTag,                10(destAddress)
+    iaddiu  destAddress,    destAddress,    11
+
+    ; per-mesh scalars, loaded per batch (begin: is a loop)
+    lq      gParams,    5(vi00)
+    lq      gWave,      12(vi00)
+
+    iadd    vertexCounter,  vi00,           vertexCount
+cardLoop:
+
+        lq      card,       (vertexData)
+
+        ;--- clip-space ground point (w = 1 implied)
+        mul     acc,        mvp[3],     vf00[w]
+        madd    acc,        mvp[0],     card[x]
+        madd    acc,        mvp[1],     card[y]
+        madd    cBase,      mvp[2],     card[z]
+
+        ;--- size: signed half width (mirror), height
+        abs.w   sAbs,       card
+        mul.x   hw,         gParams,    card[w]
+        mul.y   hh,         gParams,    sAbs[w]
+
+        ;--- gust phase: dot(xz, wave) + time, fraction, parabolic sine
+        mul.xz  ph,         card,       gWave
+        add.x   ph,         ph,         ph[z]
+        add.x   ph,         ph,         gParams[w]
+        ftoi0.x tr,         ph
+        itof0.x tr,         tr
+        sub.x   ph,         ph,         tr
+        add.x   ph,         ph,         ph
+        sub.x   ph,         ph,         vf00[w]
+        abs.x   pa,         ph
+        mul.x   pa,         pa,         ph
+        sub.x   ph,         ph,         pa
+        mul.x   ph,         ph,         gParams[z]
+        mul.x   ph,         ph,         hh[y]
+
+        ;--- axes: right * halfW; up * height + windDir * sway
+        mul     axisR,      clipR,      hw[x]
+        mul     acc,        mvp[1],     hh[y]
+        madd    axisU,      clipW,      ph[x]
+
+        ;--- corners in strip order
+        sub     c0,         cBase,      axisR
+        add     c1,         cBase,      axisR
+        add     c2,         c0,         axisU
+        add     c3,         c1,         axisU
+
+        ;--- per-card cull: any corner outside the raster window / z range
+        iadd    failAcc,    vi00,       vi00
+        clipw.xyz   c0,     c0
+        fcand   VI01,       0x3F
+        ior     failAcc,    failAcc,    VI01
+        clipw.xyz   c1,     c1
+        fcand   VI01,       0x3F
+        ior     failAcc,    failAcc,    VI01
+        clipw.xyz   c2,     c2
+        fcand   VI01,       0x3F
+        ior     failAcc,    failAcc,    VI01
+        clipw.xyz   c3,     c3
+        fcand   VI01,       0x3F
+        ior     failAcc,    failAcc,    VI01
+
+        ;--- fog from the ground point; ADC words: the first two vertices
+        ;--- always break the strip, the last two only on a cull
+        CalculateTyraFog{ fogInt, cBase, fogParams }
+        ior     adcLow,     adcMask,    fogInt
+        iaddiu  adcHigh,    failAcc,    0x7FFF
+        iand    adcHigh,    adcHigh,    adcMask
+        ior     adcHigh,    adcHigh,    fogInt
+
+        VertexPersCorr{ c0, c0 }
+        ScaleVertexToGSFormat{ scale, c0 }
+        sq      st0,        0(destAddress)
+        sq.xyz  c0,         1(destAddress)
+        isw.w   adcLow,     1(destAddress)
+
+        VertexPersCorr{ c1, c1 }
+        ScaleVertexToGSFormat{ scale, c1 }
+        sq      st1,        2(destAddress)
+        sq.xyz  c1,         3(destAddress)
+        isw.w   adcLow,     3(destAddress)
+
+        VertexPersCorr{ c2, c2 }
+        ScaleVertexToGSFormat{ scale, c2 }
+        sq      st2,        4(destAddress)
+        sq.xyz  c2,         5(destAddress)
+        isw.w   adcHigh,    5(destAddress)
+
+        VertexPersCorr{ c3, c3 }
+        ScaleVertexToGSFormat{ scale, c3 }
+        sq      st3,        6(destAddress)
+        sq.xyz  c3,         7(destAddress)
+        isw.w   adcHigh,    7(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     1
+        iaddiu  destAddress,    destAddress,    8
+
+        iaddi   vertexCounter,  vertexCounter,  -1
+        ibgtz   vertexCounter,  cardLoop
+
+    xgkick kickAddress ; dispatch to the GS rasterizer.
+
+--barrier ; Why the hell I must add barrier AFTER XGKICK? VCL does not adds E bit without it...
+--cont
+
+    b   begin
+
+#endvuprog
+
+--exit
+--endexit

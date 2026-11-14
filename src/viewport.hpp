@@ -16,6 +16,7 @@
 #include "aobake.hpp"
 #include "gibake.hpp"
 #include "glbparser.hpp"
+#include "groundcover.hpp"
 #include "navmesh.hpp"
 #include "procgen.hpp"
 #include "project.hpp"
@@ -177,6 +178,14 @@ public:
     // bottom-up by their weights on the drawn triangles, the generated
     // TerrainGame::terrainGripAt's twin. `grips` is one value per layer.
     float terrainLayerGrip(float x, float z, const std::vector<float>& grips) const;
+
+    // Ground cover preview (docs/ground-cover.md): the active scene's enabled
+    // covers (groundcover::covers) + draw distance in metres. The viewport
+    // grows the same cards as the game around its own camera
+    // (groundcover::tileCards) and regenerates them when the camera enters a
+    // new tile or the terrain / paint changes.
+    void setGroundCover(const std::vector<groundcover::Entry>& covers,
+                        float distanceMetres, float unitsPerMeter);
 
     // The camera ray through normalized image coords - the same one pick() and
     // terrainRaycast() build. Exposed so the app can hit-test things the
@@ -1526,7 +1535,14 @@ private:
     std::map<int, std::vector<EmitterLayerPreview>> emitterLayers_;
     double particleClock_ = 0.0;  // last sim time (advances with animClock_)
     uint32_t particleProgram_ = 0;
-    int uPartMvp_ = -1, uPartUseTex_ = -1;
+    int uPartMvp_ = -1, uPartUseTex_ = -1, uPartAlphaCut_ = -1;
+    // Ground cover preview state (setGroundCover / drawGroundCover).
+    std::vector<groundcover::Entry> gcCovers_;
+    float gcRange_ = 0.0f, gcUpm_ = 1.0f;
+    bool gcDirty_ = true;
+    int gcTx_ = 0x7FFFFFFF, gcTz_ = 0x7FFFFFFF;
+    std::vector<std::vector<groundcover::Card>> gcCards_;  // per cover, faded
+    void drawGroundCover(const float* viewProj, const float* eye, const float* fwd);
     uint32_t particleVao_ = 0, particleVbo_ = 0;  // pos3 + rgba4 + uv2, dynamic
     // Simulates and draws every enabled emitter (called once per render).
     void drawEmitterPreviews(const std::vector<SceneObject>& objects,

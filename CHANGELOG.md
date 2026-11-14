@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.16.0
+
+- **Grass that grows by itself.** In the *Terrain painting* window, the new *Ground cover* section switches on grass for the base terrain or for any painted layer. Cards grow wherever that surface shows, as dense as you set them, and follow the paint: paint the layer and the grass appears. The game draws them in a ring around the camera, and the ring's edge thins out card by card instead of ending in a line. A built-in grass tuft texture comes with it, or pick any material. The cards sway in the wind. On the PS2 they draw with a dedicated VU1 program: one quadword per card goes in, and VU1 builds the card, its sway and its culling, so dense grass stays cheap for the main CPU. The viewport shows the same grass the game draws. See `docs/ground-cover.md`.
+
 ## 2.15.0
 
 - **Remote Pad on a real PS2 no longer costs the game frames.** A debug game deployed over ps2link used to read the Remote Pad state as a file from your PC every 4th frame, and the console waited for each of those network round trips. Now the console's I/O processor receives the state from the editor over the network and leaves it in memory, so the game reads it for free every frame, and the pad also answers sooner. PCSX2 is unchanged. See `docs/devlink.md` for details.
